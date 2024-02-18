@@ -1,0 +1,102 @@
+########################
+## DEPLOY TO PRODUCTION
+########################
+
+.deploy_to_prod:
+  extends: .prereqs
+  variables:
+    CI_DEBUG_TRACE: $DEBUG_CI_JOBS # REMOVE THIS AND DELETE THE JOB LOG AFTER INSPECTION
+    GIT_SUBMODULE_STRATEGY: recursive
+    CLIENT: $CLIENT
+    ENVIRONMENT: "production"
+  stage: deploy
+  needs: ["cleanup-docker"]
+  before_script:
+    # SetUp temp AWS credentials
+    - if [ ! -d ~/.aws ]; then export REMOVE_AWS=true; mkdir ~/.aws; fi
+    - echo "[abdevops]" >> ~/.aws/credentials && echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" >> ~/.aws/credentials && echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" >> ~/.aws/credentials
+    - echo "[abdevops]" >> ~/.aws/config && echo "region=$AWS_DEFAULT_REGION" >> ~/.aws/config
+    # SetUp KUBECTL and temp credentials
+    - if [ ! -d ~/.kube ]; then export REMOVE_KUBE=true; mkdir ~/.kube; fi
+    - echo $KUBE_CONFIG | base64 -di >> ~/.kube/config
+    - curl -LO https://storage.googleapis.com/kubernetes-release/release/v1.18.17/bin/linux/amd64/kubectl
+    - chmod +x ./kubectl && mv ./kubectl ~/
+    # lists all repositories under the account
+    #- aws ecr describe-repositories | jq ".repositories[].repositoryArn"
+    - echo "Deploying to production cluster..."
+  after_script:
+    # APPLY THE DEPLOYMENT
+    - sed -i "s/_{REPLACE_WITH_AWS_ECR_URL}_/$AWS_ECR_URL/" ./deployment.yaml
+    - kubectl apply -f ./deployment.yaml
+    # cleanup
+    - rm -f deployment.yml && mv deployment.yml.backup deployment.yml
+    - if [ $REMOVE_AWS = true ]; then rm -rf ~/.aws; fi
+    - if [ $REMOVE_KUBE = true ]; then rm -rf ~/.kube; fi
+    - if [ -f ~/kubectl ]; rm ~/kubectl; fi
+    # TEST connection
+    #- curl https://api.ab.pannovate.net/is-everything-alright | jq '.info.AS.status'
+  environment:
+    name: production
+    url: https://api.transfast.pannovate.net
+  when: manual
+
+deploy-prod-api-gw:
+  extends: .deploy_to_prod
+  script:
+    # Get the deployment files from the infra repo for complete automation
+    - cd ./packages/api-gateway && cp deployment.yml deployment.yml.backup
+
+deploy-prod-as:
+  extends: .deploy_to_prod
+  script:
+    # Get the deployment files from the infra repo for complete automation
+    - cd ./packages/as && cp deployment.yml deployment.yml.backup
+
+deploy-prod-config:
+  extends: .deploy_to_prod
+  script:
+    # Get the deployment files from the infra repo for complete automation
+    - cd ./packages/config && cp deployment.yml deployment.yml.backup
+
+deploy-prod-cs:
+  extends: .deploy_to_prod
+  script:
+    # Get the deployment files from the infra repo for complete automation
+    - cd ./packages/cs && cp deployment.yml deployment.yml.backup
+
+deploy-prod-webhook:
+  extends: .deploy_to_prod
+  script:
+    # Get the deployment files from the infra repo for complete automation
+    - cd ./packages/webhook && cp deployment.yml deployment.yml.backup
+
+deploy-prod-els:
+  extends: .deploy_to_prod
+  script:
+    # Get the deployment files from the infra repo for complete automation
+    - cd ./packages/els && cp deployment.yml deployment.yml.backup
+
+deploy-prod-fs:
+  extends: .deploy_to_prod
+  script:
+    # Get the deployment files from the infra repo for complete automation
+    - cd ./packages/fs && cp deployment.yml deployment.yml.backup
+
+deploy-prod-kyc:
+  extends: .deploy_to_prod
+  script:
+    # Get the deployment files from the infra repo for complete automation
+    - cd ./packages/kyc && cp deployment.yml deployment.yml.backup
+    - sed -i  ’s/_{REPLACE_WITH_ONFIDO_APP_BUNDLE}_/$ONFIDO_APP_BUNDLE/’ ./deployment.yaml
+
+deploy-prod-mps:
+  extends: .deploy_to_prod
+  script:
+    # Get the deployment files from the infra repo for complete automation
+    - cd ./packages/mps && cp deployment.yml deployment.yml.backup
+
+deploy-prod-pubsub:
+  extends: .deploy_to_prod
+  script:
+    # Get the deployment files from the infra repo for complete automation
+    - cd ./packages/pubsub && cp deployment.yml deployment.yml.backup

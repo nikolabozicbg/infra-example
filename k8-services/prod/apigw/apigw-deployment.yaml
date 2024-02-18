@@ -1,0 +1,188 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tfs-apigw-deployment
+  labels:
+    app.kubernetes.io/name: apigw
+    app: apigw
+    client: transfast
+  namespace: tfs-apigw
+  annotations:
+    linkerd.io/inject: enabled
+spec:
+  selector:
+    matchLabels:
+      app: apigw
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: apigw
+    spec:
+      containers:
+        - name: syllo-apigw
+          image: 458838185766.dkr.ecr.eu-west-1.amazonaws.com/syllo-api-gateway:1.9.2
+          imagePullPolicy: Always
+          resources:
+            limits:
+              memory: 600Mi
+              cpu: "0.45"
+            requests:
+              memory: 400Mi
+              cpu: "0.30"
+          ports:
+            - containerPort: 10001
+              name: apigw-grpc-port
+          env:
+            - name: npm_package_version
+              value: "1.9.2"
+            - name: ENVIRONMENT
+              value: "production"
+            - name: DB_TYPE
+              value: "postgres"
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: postgres-host
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: postgres-port
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: postgres-username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: postgres-password
+            - name: DB_NAME
+              value: "syllotransfast"
+            - name: DB_SYNC_ENABLED
+              value: "false"
+            - name: DB_MIGRATIONS_ENABLED
+              value: "true"
+            - name: DB_LOGGING
+              value: "false"
+            - name: DB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: mongo-uri
+            - name: PUBSUB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: redis-url
+            - name: AS_URL
+              value: "172.20.251.247:10004"
+            - name: ELS_URL
+              value: "172.20.135.187:10006"
+            - name: KYC_URL
+              value: "172.20.9.88:10002"
+            - name: FS_URL
+              value: "172.20.227.208:10007"
+            - name: CS_URL
+              value: "172.20.34.44:10003"
+            - name: WEBHOOK_URL
+              value: "172.20.167.47:10010"
+            - name: MPS_URL
+              value: "172.20.254.12:10005"
+            - name: PS_URL
+              value: "172.20.133.143:10014"
+            - name: CONFIG_URL
+              value: "172.20.49.246:10008"
+            - name: SERVER_PORT
+              value: "10001"
+            - name: MQ_URL
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: mq-url
+            - name: PFS_WEBHOOK_USERNAME_BANK
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: user_bank
+            - name: PFS_WEBHOOK_PASSWORD_BANK
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: pass_bank
+            - name: PFS_WEBHOOK_USERNAME_STATUS_CHANGE
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: user_status
+            - name: PFS_WEBHOOK_PASSWORD_STATUS_CHANGE
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: pass_status
+            - name: PFS_WEBHOOK_USERNAME_COMPLIANCE
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: user_compl
+            - name: PFS_WEBHOOK_PASSWORD_COMPLIANCE
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: pass_compl
+            - name: PFS_WEBHOOK_USERNAME_RTF
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: user_rtf
+            - name: PFS_WEBHOOK_PASSWORD_RTF
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: pass_rtf
+            - name: PFS_WEBHOOK_USERNAME_SEPA_DIRECT_DEBIT
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: user_sepa_dir
+            - name: PFS_WEBHOOK_PASSWORD_SEPA_DIRECT_DEBIT
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: pass_sepa_dir
+            - name: PFS_WEBHOOK_USERNAME_SEPA_TRANSFER_HANDLER
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: user_sepa_trans
+            - name: PFS_WEBHOOK_PASSWORD_SEPA_TRANSFER_HANDLER
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: pass_sepa_trans
+            - name: SWAGGER_HIDDEN
+              value: "true"
+            - name: APPROVED_CORS_ORIGINS
+              value: "https://admin-transfast.stage.pannovate.net,https://d3q7hej0o32zfl.cloudfront.net,https://api.transfast.stage.pannovate.net,https://transfast.syllo.stage.pannovate.net,https://transfast.stage.pannovate.net,https://dsrqz8v7ee2cn.cloudfront.net,https://trunarrative.transfast.pannovate.net"
+            - name: PLUGINS
+              value: "@syllo/transfast,@syllo/chat"
+            - name: NO_COLOR
+              value: "true"
+            - name: CLIENT
+              value: "TRANSFAST"
+            - name: TNB_EXTERNAL_API_KEY
+              value: "not_set"
+            - name: ALLOWED_ADMIN_USER_COUNT
+              value: "25"
+            - name: SYLLO_LOG_LEVEL
+              value: "2"
+            - name: DEBUG
+              value: "false"

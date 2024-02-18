@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-server
+  namespace: tfs-apigw
+  labels:
+    app.kubernetes.io/name: echo-server
+    app: echo-server
+spec:
+  selector:
+    app: echo-server
+  ports:
+    - name: echo-srv-port
+      protocol: TCP
+      port: 80
+  type: NodePort

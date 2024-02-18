@@ -1,0 +1,206 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tfs-mps-deployment
+  labels:
+    app.kubernetes.io/name: mps
+    app: mps
+    client: transfast
+  namespace: tfs-mps
+  annotations:
+    linkerd.io/inject: enabled
+spec:
+  selector:
+    matchLabels:
+      app: mps
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: mps
+    spec:
+      containers:
+        - name: syllo-mps
+          image: 458838185766.dkr.ecr.eu-west-1.amazonaws.com/syllo-mps:1.9.2
+          imagePullPolicy: Always
+          resources:
+            limits:
+              memory: 500Mi
+              cpu: "0.4"
+            requests:
+              memory: 500Mi
+              cpu: "0.4"
+          ports:
+            - containerPort: 10005
+          env:
+            - name: npm_package_version
+              value: "1.9.2"
+            - name: ENVIRONMENT
+              value: "production"
+            - name: GRPC_SERVER_URL
+              value: "0.0.0.0:10005"
+            - name: MAILER_TRANSPORT_HOST
+              value: "email-smtp.eu-west-1.amazonaws.com"
+            - name: MAILER_TRANSPORT_PORT
+              value: "587"
+            - name: MAILER_TRANSPORT_AUTH_USER
+              valueFrom:
+                secretKeyRef:
+                  name: mps-secrets
+                  key: mailer_user
+            - name: MAILER_TRANSPORT_AUTH_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: mps-secrets
+                  key: mailer_pass
+            - name: DB_TYPE
+              value: "postgres"
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: mps-secrets
+                  key: postgres-host
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: mps-secrets
+                  key: postgres-port
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mps-secrets
+                  key: postgres-username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mps-secrets
+                  key: postgres-password
+            - name: DB_NAME
+              value: "syllotransfast"
+            - name: DB_SYNC_ENABLED
+              value: "false"
+            - name: DB_MIGRATIONS_ENABLED
+              value: "true"
+            - name: DB_LOGGING
+              value: "true"
+            - name: MQ_URL
+              valueFrom:
+                secretKeyRef:
+                  name: mps-secrets
+                  key: mq-url
+            - name: AS_URL
+              value: "172.20.251.247:10004"
+            - name: CS_URL
+              value: "172.20.34.44:10003"
+            - name: FS_URL
+              value: "172.20.227.208:10007"
+            - name: ELS_URL
+              value: "172.20.135.187:10006"
+            - name: CONFIG_URL
+              value: "172.20.49.246:10008"
+            - name: EXPO_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: mps-secrets
+                  key: expo-access-token
+            - name: MAIL_SEND_FROM_NAME
+              value: "TransFast"
+            - name: MAIL_SEND_FROM
+              value: "transfast@pannovate.net"
+            - name: MAIL_SEND_FROM_NO_REPLY
+              value: "transfast@pannovate.net"
+            - name: FIREBASE_type
+              value: "service_account"
+            - name: FIREBASE_project_id
+              valueFrom:
+                secretKeyRef:
+                  name: mps-secrets
+                  key: firebase_id
+            - name: FIREBASE_private_key_id
+              valueFrom:
+                secretKeyRef:
+                  name: mps-secrets
+                  key: firebase_key_id
+            - name: FIREBASE_private_key
+              valueFrom:
+                secretKeyRef:
+                  name: mps-secrets
+                  key: firebase_key
+            - name: FIREBASE_client_email
+              valueFrom:
+                secretKeyRef:
+                  name: mps-secrets
+                  key: firebase_email
+            - name: FIREBASE_client_id
+              valueFrom:
+                secretKeyRef:
+                  name: mps-secrets
+                  key: firebase_client_id
+            - name: FIREBASE_auth_uri
+              value: "https://accounts.google.com/o/oauth2/auth"
+            - name: FIREBASE_token_uri
+              value: "https://oauth2.googleapis.com/token"
+            - name: FIREBASE_auth_provider_x509_cert_url
+              value: "https://www.googleapis.com/oauth2/v1/certs"
+            - name: FIREBASE_client_x509_cert_url
+              valueFrom:
+                secretKeyRef:
+                  name: mps-secrets
+                  key: firebase_cert_url
+            - name: FIREBASE_NOTIFICATION_SOUND_NAME
+              value: "custom.wav"
+            - name: FIREBASE_NOTIFICATION_CHANNEL
+              value: "custom_channel"
+            - name: REQUEST_ADDITIONAL_CARD_RECIPIENT_NAME
+              value: "Transfast addittional card request"
+            - name: REQUEST_ADDITIONAL_CARD_RECIPIENT_EMAIL
+              value: "transfast@pannovate.com"
+            - name: REQUEST_CALLBACK_RECIPIENT_NAME
+              value: "Transfast callback request"
+            - name: REQUEST_CALLBACK_RECIPIENT_EMAIL
+              value: "transfast@pannovate.com"
+            - name: REQUEST_CALLBACK_CUSTOMER_RECIPIENT_NAME
+              value: "Transfast support callback request"
+            - name: REQUEST_CALLBACK_CUSTOMER_RECIPIENT_EMAIL
+              value: "transfast@pannovate.com"
+            - name: INTERNAL_FORWARD_TO_NAME
+              value: "Transfast Internal"
+            - name: INTERNAL_FORWARD_TO_EMAIL
+              value: "transfast@pannovate.com"
+            - name: TWILIO_ACCOUNT_SID
+              valueFrom:
+                secretKeyRef:
+                  name: mps-secrets
+                  key: twilio_account_sid
+            - name: TWILIO_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: mps-secrets
+                  key: twilio_auth_token
+            - name: TWILIO_NUMBER
+              valueFrom:
+                secretKeyRef:
+                  name: mps-secrets
+                  key: twilio_number
+            - name: TWILIO_REGION
+              value: "de1"
+            - name: TWILIO_EDGE
+              value: "frankfurt"
+            - name: HTTP_SERVER_PORT
+              value: "1111"
+            - name: PUBSUB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: mps-secrets
+                  key: redis-url
+            - name: NO_COLOR
+              value: "true"
+            - name: CLIENT
+              value: "TRANSFAST"
+            - name: DEBUG
+              value: "false"

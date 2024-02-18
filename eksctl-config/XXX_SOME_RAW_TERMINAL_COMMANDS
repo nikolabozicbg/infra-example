@@ -1,0 +1,137 @@
+# shellcheck shell=bash
+
+######################################################################
+###                                                                ###
+### A BUNCH OF COMMANDS USED DURING CLUSTER INSTALLATION           ###
+### EXTRACTED FROM UNSORTED TERMINAL HISTORY OF MULTIPLE TERMINALS ###
+###                                                                ###
+######################################################################
+
+
+############ START INITIALIZING A CLUSTER ###########
+
+
+ssh-keygen -t ed25519 -C "TransFast Stage Cluster Key"
+eksctl utils schema
+eksctl create cluster -f cluster-config-no-vpc.yaml --dry-run
+aws kms create-grant --version
+aws kms list-grants --region eu-west-1
+aws kms list-keys --region eu-west-1
+aws kms list-grants --region "eu-west-1" --key-id "a990b520-11f6-42f2-8f14-cb2337dcf583"
+curl -o eks-console-full-access.yaml https://s3.us-west-2.amazonaws.com/amazon-eks/docs/eks-console-full-access.yaml
+vim eks-console-full-access.yaml
+
+ekscrl get cluster
+eksctl create cluster -f eksctl-config/stage/cluster-config-no-vpc.yaml
+eksctl create cluster --name test --region eu-west-1 --alb-ingress-access --asg-access --ssh-access --ssh-public-key ~/.ssh/transfast-stage-aws_ed25519.pub --vpc-cidr "10.18.0.0/16" --managed --version 1.22 --verbose 5 --dry-run
+
+
+eksctl create iamidentitymapping --cluster transfast-stage --region=eu-west-1 --arn arn:aws:iam::309602515679:role/OrganizationAccountAccessRole --group eks-console-dashboard-full-access-group --no-duplicate-arns
+eksctl get iamidentitymapping --cluster transfast-stage --region=eu-west-1
+kubectl apply -f karpenter-provisioner.yaml
+
+kubectl proxy --address 0.0.0.0 --accept-hosts '.*' --port 8080
+
+helm list --debug
+helm repo add grafana-charts https://grafana.github.io/helm-charts
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+kubectl create namespace monitoring
+curl -fsSL https://karpenter.sh/v0.9.0/getting-started/getting-started-with-eksctl/prometheus-values.yaml | tee prometheus-values.yaml
+cat prometheus-values.yaml
+helm install --namespace monitoring prometheus prometheus-community/prometheus --values prometheus-values.yaml
+curl -fsSL https://karpenter.sh/v0.9.0/getting-started/getting-started-with-eksctl/grafana-values.yaml | tee grafana-values.yaml
+helm install --namespace monitoring grafana grafana-charts/grafana --values grafana-values.yaml
+kubectl get secret --namespace monitoring grafana -o jsonpath="{.data.admin-password}" | base64 --decode ; echo && kubectl port-forward --namespace monitoring svc/grafana 3000:80
+
+
+helm upgrade --install loki grafana/loki-stack --namespace monitoring --wait
+
+
+helm repo add grafana https://grafana.github.io/helm-charts
+helm upgrade --install loki grafana/loki-stack --version 2.8.2 --namespace monitoring --wait
+kubectl get secret --namespace monitoring grafana -o jsonpath="{.data.admin-password}" | base64 --decode
+kubectl port-forward --namespace monitoring svc/grafana 3000:80
+
+kubectl get service -n monitoring
+kubectl describe service -n monitoring
+kubectl describe service -n monitoring --name grafana
+kubectl describe service -n tfs-apigw
+kubectl describe service -n monitoring grafana
+kubectl describe pod -n monitoring grafana
+kubectl edit pod -n monitoring grafana-7f78746cc-fdgz5 -o yaml
+kubectl edit service -n monitoring grafana -o yaml
+kubectl edit endpoints -n monitoring grafana -o yaml
+kubectl edit service -n monitoring -o yaml
+kubectl get service -n monitoring grafana
+dig http://monitoring.transfast.stage.pannovate.net
+kubectl describe service grafana -n monitoring -o yaml
+kubectl edit ingress -n tfs-apigw -o yaml
+kubectl edit service -n tfs-apigw -o yaml
+
+
+curl http://a28db41a43b4948419696e7e5559a7a6-bd93381d192c4f7f.elb.eu-west-1.amazonaws.com
+curl https://a28db41a43b4948419696e7e5559a7a6-bd93381d192c4f7f.elb.eu-west-1.amazonaws.com
+curl https://api.transfasf.stage,pannovate.net
+
+kubectl get secret --namespace monitoring grafana -o jsonpath="{.data.admin-password}" | base64 --decode ; echo
+
+vim eksctl-config/stage/grafana-values.yaml
+helm install --namespace monitoring grafana grafana-charts/grafana --set service.type=LoadBalancer --values eksctl-config/stage/grafana-values.yaml
+
+kubectl describe pod grafana-5d7d6749d7-5msxk  -n monitoring
+kubectl edit ingress grafana -n monitoring -o yaml
+kubectl edit service grafana -n monitoring -o yaml
+
+kubectl get ingressclass -n monitoring
+kubectl edit ingressclass -n monitoring -o yaml
+kubectl get ingressclasses.networking.k8s.io -n monitoring
+
+kubectl edit ingress -n monitoring -o yaml
+
+kubectl delete ingressclass internet-alb-ingres-class -n monitoring
+kubectl get ingressclasses -n monitoring
+vim grafana-ingress-class.yaml
+
+############ END INITIALIZING A CLUSTER ###########
+
+###################################################
+
+########### START OF AWS ALB INSTALLATION #########
+
+# Install IAM Policy
+curl -o iam-policy.json https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.4.3/docs/install/iam_policy.json
+aws iam list-policies| grep -i LoadBalancer
+aws iam create-policy --policy-name AWSLoadBalancerControllerIAMPolicy --policy-document file://iam-policy.json
+eksctl create iamserviceaccount --cluster=transfast-stage --namespace=kube-system --name=aws-load-balancer-controller --attach-policy-arn=arn:aws:iam::309602515679:policy/AWSLoadBalancerControllerIAMPolicy --approve
+eksctl get iamserviceaccount --cluster=transfast-stage
+
+# Create and associate IAM OIDC provider to the cluster
+eksctl utils associate-iam-oidc-provider --region eu-west-1 --cluster transfast-stage --approve
+
+# Add the EKS chart repo to Hel
+helm repo add eks https://aws.github.io/eks-charts
+kubectl get deployments.apps -n kube-system
+kubectl apply -k "github.com/aws/eks-charts/stable/aws-load-balancer-controller//crds?ref=master"
+helm upgrade -i aws-load-balancer-controller eks/aws-load-balancer-controller -n kube-system --set clusterName=transfast-stage
+
+vim eksctl-config/stage/grafana-values.yaml
+kubectl delete ingres grafana -n monitoring
+watch -n1 kubectl describe service grafana -n monitoring
+
+kubectl get ingressclasses
+kubectl apply -f grafana-ingress-class.yaml
+kubectl get secret --namespace monitoring grafana -o jsonpath="{.data.admin-password}" | base64 --decode ; echo
+kubectl edit ingress -n monitoring
+curl http://monitoring.transfast.stage.pannovate.net
+
+helm upgrade --namespace monitoring grafana grafana-charts/grafana --values eksctl-config/stage/grafana-values.yaml
+vim k8-services/aws-stage/apigw/apigw-ingress.yaml
+kubectl edit service grafana -n monitoring
+vim k8-services/aws-stage/apigw/apigw-service.yaml
+kubectl edit ingress grafana -n monitoring
+kubectl describe ingress -n monitoring
+kubectl describe service grafana -n monitoring
+kubectl get all -n monitoring
+kubectl logs pod/grafana-cf5566cff-9ddgv -n monitoring -f
+curl https://monitoring.transfast.stage.pannovate.net

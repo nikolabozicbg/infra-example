@@ -1,0 +1,13 @@
+{
+	"tabWidth": 4,
+	"overrides": [
+		{
+			"files": ["*.yml", "*.yaml", "*.tf", "*.tfvars", "*.hcl", "*.md"],
+			"options": {
+				"tabWidth": 2,
+				"useTabs": false,
+				"bracketSpacing": false
+			}
+		}
+	]
+}

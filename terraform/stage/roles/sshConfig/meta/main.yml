@@ -1,0 +1,11 @@
+galaxy_info:
+  author: dusanm
+  description: A simple role to configure ssh server
+
+  license: MIT
+
+  min_ansible_version: 2.4
+
+  galaxy_tags: []
+
+dependencies: []

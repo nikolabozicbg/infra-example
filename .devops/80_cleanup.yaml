@@ -1,0 +1,31 @@
+cleanup-docker:
+  extends: .prereqs
+  stage: hygiene
+  needs:
+    - "api-gateway-build"
+    - "as-build"
+    - "config-build"
+    - "cs-build"
+    - "els-build"
+    - "fs-build"
+    - "kyc-build"
+    - "mps-build"
+    - "ps-build"
+    - "pubsub-build"
+    - "webhook-build"
+  script:
+    - |
+      curl --fail --show-error --location "https://github.com/genuinetools/reg/releases/download/v0.16.1/reg-linux-amd64" --output /usr/local/bin/reg
+      echo "ade837fc5224acd8c34732bf54a94f579b47851cc6a7fd5899a98386b782e228  /usr/local/bin/reg" | sha256sum -c -
+      chmod a+x /usr/local/bin/reg
+    - SERVICES_LIST="api-gateway as config cs els fs kyc mps ps pubsub webhook"
+    - |
+      echo "Starting cleanup of Temporary Docker images for this build"
+      for SERVICE in $SERVICES_LIST; do
+        printf "  - Checking %s...\n" "$SERVICE"
+        if [ "$(/usr/local/bin/reg tags --auth-url $CI_REGISTRY -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $DOCKER_REGISTRY/syllo-$SERVICE)" == "deploy" ]; then
+          /usr/local/bin/reg rm --auth-url $CI_REGISTRY -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $DOCKER_REGISTRY/syllo-$SERVICE || echo "Check this!"
+        fi
+      done
+      echo -e "\e[7;92mReleasing and removing image tags completed!\e[0m"
+      echo -e "\e[0;92mGitLab's Garbage-Collector and OUR 'cleanup.sh' script should delete unneeded data. (In general at least once a day.)\e[0m"

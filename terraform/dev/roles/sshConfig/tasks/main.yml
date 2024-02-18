@@ -1,0 +1,31 @@
+---
+# This role will configure SSHD
+- name: unset existing PermitRootLogin
+  lineinfile:
+    dest: "/etc/ssh/sshd_config"
+    regexp: "^[#]*PermitRootLogin yes"
+    line: "#PermitRootLogin yes"
+    state: present
+
+- name: set PermitRootLogin no
+  lineinfile:
+    dest: "/etc/ssh/sshd_config"
+    insertafter: "^#PermitRootLogin yes"
+    line: "PermitRootLogin no"
+    state: present
+
+- name: unset existing PasswordAuthentication
+  lineinfile:
+    dest: "/etc/ssh/sshd_config"
+    regexp: "^[#]*PasswordAuthentication yes"
+    line: "#PasswordAuthentication yes"
+    state: present
+
+- name: set PasswordAuthentication no
+  lineinfile:
+    dest: "/etc/ssh/sshd_config"
+    insertafter: "^#PasswordAuthentication yes"
+    line: "PasswordAuthentication no"
+    state: present
+    validate: "/usr/sbin/sshd -T -C user=root -C host=localhost -C addr=localhost -f %s"
+  notify: restart sshd

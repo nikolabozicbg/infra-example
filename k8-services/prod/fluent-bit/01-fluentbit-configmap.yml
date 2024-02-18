@@ -1,0 +1,76 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/name: fluentbit
+  name: fluent-bit-config
+  namespace: kube-system
+data:
+  fluent-bit.conf: |
+    [SERVICE]
+        Parsers_File  parsers.conf
+        Streams_File  streams.conf
+    [INPUT]
+        Name              tail
+        Tag               containerlogs
+        Path              /var/log/containers/*.log
+        Parser            docker
+        DB                /var/log/flb_kube.db
+        Mem_Buf_Limit     256MB
+        DB.locking        true
+        Rotate_Wait       30
+        Docker_Mode       On
+        Docker_Mode_Flush 10
+        # Multiline         On
+        # Parser_Firstline  multiline
+        Skip_Long_Lines   Off
+        Refresh_Interval  10
+    [FILTER]
+        Name              parser
+        Match             containerlogs
+        Parser            dummy
+        Key_Name          log
+        Reserve_Data      True
+    [OUTPUT]
+        Name              s3
+        # Match             states.ca
+        Match             containerlogs
+        bucket            transfast-prod-cluster-logs
+        region            eu-west-1
+        store_dir         /var/log/fluentbit
+        total_file_size   30M
+        upload_timeout    3m
+    # [OUTPUT]
+    #     Name cloudwatch_logs
+    #     Match states.notca
+    #     region $AWS_REGION
+    #     log_group_name fluent-bit-cloudwatch-demo
+    #     log_stream_prefix from-fluent-bit-
+    #     auto_create_group On
+    [OUTPUT]
+        Name              cloudwatch_logs
+        Match             containerlogs
+        region            eu-west-1
+        log_group_name    transfast-prod-cluster-logs
+        log_stream_prefix from-fluent-bit-
+        auto_create_group On
+  parsers.conf: |
+    [PARSER]
+        Name        multiline
+        Format      regex
+        Regex       /(?<lead>.\[3\dm\[Nest\] 1   - )(?<time>.\[3\dm\d+\/\d+\/\d+, \d+\:\d+\:\d+ AM|PM)(?<message>.*)/
+        Time_Key    time
+        Time_Format %D, %H:%M:%S %p
+    [PARSER]
+        Name   dummy
+        Format json
+    [PARSER]
+        Name   docker
+        Format json
+  streams.conf: |
+    [STREAM_TASK]
+        Name    state_filter
+        Exec    CREATE STREAM CA_SALES WITH (tag='states.ca') AS SELECT * FROM TAG:'order*' WHERE state = 'CA';
+    [STREAM_TASK]
+        Name    state_filter_notca
+        Exec    CREATE STREAM NOTCA_SALES WITH (tag='states.notca') AS SELECT * FROM TAG:'order*' WHERE state <> 'CA';

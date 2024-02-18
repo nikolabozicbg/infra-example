@@ -1,0 +1,83 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: transfast-stage
+  region: eu-west-1
+  version: "1.22"
+  tags:
+    karpenter.sh/discovery: transfast-stage #  this is set to the cluster name
+
+karpenter:
+  version: "0.9.0"
+
+vpc:
+  autoAllocateIPv6: false
+  cidr: 10.18.0.0/16
+  clusterEndpoints:
+    publicAccess: true
+    privateAccess: true
+  publicAccessCIDRs:
+    - 91.143.218.42/32 # VPN
+    - 88.99.219.54/32 # Alpha
+  manageSharedNodeSecurityGroupRules: true
+  nat:
+    gateway: Single
+
+# KMS Key has to be generated and ARN copied here
+secretsEncryption:
+  keyARN: "arn:aws:kms:eu-west-1:309602515679:key/b0012478-3a66-4881-8986-ec3f8ea3eb2a"
+
+cloudWatch:
+  clusterLogging:
+    enableTypes: ["all"]
+
+availabilityZones:
+  - eu-west-1c
+  - eu-west-1b
+  - eu-west-1a
+
+# Instances spanning across several availability zones increase availability.
+# But, AWS recommends to do this:
+# - Configure multiple node groups,
+# - Scope each of them to a single Availability Zone,
+# - And then enable the –balance-similar-node-groups feature.
+#
+# Another option is:
+# - Create only one node group,
+# - Scope that node group to span across multiple Availability Zones.
+
+managedNodeGroups:
+  - name: managed-ng-v3
+    labels:
+      alpha.eksctl.io/cluster-name: transfast-stage
+      alpha.eksctl.io/nodegroup-name: managed-ng-v3
+    amiFamily: AmazonLinux2
+    instanceType: t3a.medium # TODO: Questionable instance size
+    minSize: 1
+    maxSize: 10
+    desiredCapacity: 1
+    volumeSize: 80
+    privateNetworking: true
+    ssh:
+      allow: true
+      publicKeyPath: /home/dusanm/.ssh/transfast-stage-aws_ed25519.pub
+    iam:
+      withAddonPolicies:
+        autoScaler: true
+        certManager: true
+        awsLoadBalancerController: true
+        albIngress: true
+        cloudWatch: true
+
+addons:
+
+privateCluster:
+  enabled: false
+  skipEndpointCreation: false
+
+iam:
+  vpcResourceControllerPolicy: true
+  withOIDC: true # required for Karpenter
+kubernetesNetworkConfig:
+  ipFamily: IPv4

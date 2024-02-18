@@ -1,0 +1,52 @@
+# THE DEFAULT VALUES ARE REPRESENTED HERE.
+# OPTIONAL VALUES IF OMMITED WILL ASSUME DEFAULTS
+
+
+# client  = "test"   # OPTIONAL
+# env     = "test"   # OPTIONAL
+# project = "syllo"  # OPTIONAL
+
+# IN ORDER FOR VAULT TO WORK, AN ENVIRONMENT VARIABLE "VAULT_TOKEN=" OR A FILE "~/.vault-token"
+#   NEED TO HAVE A TOKEN VALUE SET.
+# THAT TOKEN SHOULD BE OBTAINED FROM A VAULT INTERFACE AND WILL EXPIRE BASED ON THE VAULT SETTINGS
+#
+# example:
+#      $ export VAULT_TOKEN=12345asdf09876
+#
+
+# vault_address = "https://vault.pannovate.net"    # OPTIONAL
+
+# hcloud_token_name = "syllo-project-token"       # OPTIONAL
+hcloud_token_path = "path/in/vault" # the path within the vault where the secret is stored
+
+# os_image    = "debian-10"   # OPTIONAL # debian-9, ububtu-20.04...
+# server_type = "cx21"        # OPTIONAL # cx21 for dev and cx31 for stage...
+# location    = "nbg1"        # OPTIONAL # nbg1 is for Germany 1 for example
+
+# Either one of these two variables need to be set or they can both be set.; public_ssh_key or use_existing_ssh_keys
+# if a new key is being added - specify it here below
+
+# public_ssh_key_name = ""      # OPTIONAL
+# public_ssh_key      = ""     # OPTIONAL
+
+# and set thhe following to false if you want to limit the acces to only the above key
+
+# use_existing_ssh_keys = true   # OPTIONAL
+
+# These next few variables defined wil update the user-data.sh CloudInit script.
+# This script is automatically run on first initialization of the instance.
+
+# User-data variables
+git_branch             = "develop" # The name of the branch to pull from during initialization
+syllo_user_pass_name   = "user_password_name" # Secrets name in the Vault.
+syllo_user_pass_path   = "user/password/path" # Secrets path in the vault.
+npm_token_name         = "npm_token_name" # Secrets name in the Vault.
+npm_token_path         = "npm/token/path"
+gitlab_api_token_name  = "gitlab_token_name" # Secrets name in the Vault.
+gitlab_api_token_path  = "gitlab/token/path" # Secrets name in the Vault.
+
+syllo_server_url       = "<client>.syllo.<env>.pannovate.net" # If not specified it will be generated: "${var.client}.${var.project}.${var.env}.pannovate.net"
+
+gitlab_deploy_key_name = "<clinet>-<env>-key"    # The name of this instances SSH to insert into GitLab.
+
+# existing_firewall_name = "Basic_firewall-1"  # OPTIONAL # The name of the existing firewall rule on Hetzner to apply to this instance

@@ -1,0 +1,33 @@
+.DS_Store
+file:
+node_modules
+.env
+
+# Secure
+*.pem
+credentials.csv
+
+# Terraform
+.terraform
+*.tfstate
+*.tfstate.backup
+*.tfplan
+
+### venv ###
+# Virtualenv
+# http://iamzed.com/2009/05/07/a-primer-on-virtualenv/
+.Python
+[Bb]in
+[Ii]nclude
+[Ll]ib
+[Ll]ib64
+[Ll]ocal
+[Ss]cripts
+pyvenv.cfg
+.venv
+pip-selfcheck.json
+
+# Other
+*secret*.yaml
+*.log
+test.Dockerfile

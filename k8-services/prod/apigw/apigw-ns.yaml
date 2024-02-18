@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tfs-apigw
+  labels:
+    app.kubernetes.io/name: apigw
+    app: apigw

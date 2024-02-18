@@ -1,0 +1,582 @@
+#
+#
+# THESE JOBS CAN BE RUN IN PARALLEL
+#
+api-gateway-build:
+  extends: .prereqs
+  stage: build-images
+  needs: &need
+    - "apigw-test"
+    - "fs-test"
+    - "pubsub-test"
+  script:
+    - cd ./packages/api-gateway
+    # IMPLEMENT SOME METHOD (EX: USING ARTIFACTS) TO THANSMIT INFO TO NEXT STAGE
+    # WE SHOULD COMPARE TO ECR ON BUILD ANYHOW
+    # AND NOT COMPLICATED CHECKS IN EACH STAGE
+    - |
+      echo "Checking for already published version..."
+      SRVC=api-gateway
+      ECRVERSION=$(aws ecr describe-images --repository-name syllo-$SRVC --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[0]' --output text)
+      if [ $ECRVERSION == "latest" ]; then ECRVERSION=$(aws ecr describe-images --repository-name syllo-$SRVC --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[1]' --output text); fi
+      echo "Latest ECR image version found: v$ECRVERSION"
+      echo "Local version: v$VERSION"
+      # ecrarr=$(echo $ECRVERSION | sed "s/\./\ /g")
+      # versionarr=$(echo $VERSION | sed "s/\./\ /g")
+      # SUMECR=$(($(echo $ecrarr | awk '{print $1}') * 10000 + $(echo $ecrarr | awk '{print $2}') * 1000 + $(echo $ecrarr | awk '{print $3}')))
+      # SUMVERSION=$(($(echo $versionarr | awk '{print $1}') * 10000 + $(echo $versionarr | awk '{print $2}') * 1000 + $(echo $versionarr | awk '{print $3}')))
+      # if [ "$SUMECR" -ge $SUMVERSION ]; then
+      aws ecr describe-images --no-paginate --repository-name syllo-$SRVC --image-ids imageTag=$VERSION > /dev/null 2>&1 || isFound=false
+      if [ "$isFound" != "false" ]; then
+        echo -e "\e[0;91mECR repository already has versions equal to this build!\e[0m"
+        if [ "$FORCE_BUILD" == "false" ]; then
+          echo "Done here! Moving on...!" && exit 0
+        fi
+      fi
+      if [ "$FORCE_BUILD" == "true" ]; then echo -e "\e[0;91mForced rebuild option selected!\e[0m"; fi
+      if [ -f deploy.Dockerfile ]; then
+        # This file did not exist in the beginning
+        docker pull $CI_REGISTRY/$DOCKER_REGISTRY/syllo-apigw:deploy
+      fi
+      if [ -n "$PLUGINS" ]; then
+        # Use ALL plugins, until we find a better solution
+        # for PLUGIN in ../plugins/*; do
+        # This is a better solution
+        for PLUGIN in $(echo $PLUGINS | sed "s/,/ /g"); do
+          PLUGIN=$(basename $PLUGIN)
+          LOCALVER=$(jq -r '.version' ../plugins/"$PLUGIN"/package.json)
+          tmp=$(mktemp)
+          jq '.dependencies += {"@syllo/'"$PLUGIN"'":"'"$LOCALVER"'"}' package.json > "$tmp" && mv "$tmp" package.json
+        done
+      fi
+      docker build -t $AWS_ECR_URL/syllo-$SRVC:latest --build-arg DOCKER_REPO="$CI_REGISTRY/$DOCKER_REGISTRY/" .
+      docker tag $AWS_ECR_URL/syllo-$SRVC:latest $AWS_ECR_URL/syllo-$SRVC:$(cat package.json | jq -r .version)
+
+      # RUN DOCKER IMAGE VULNERABILITY/SECURITY SCANS WITH "SNYK", "Anchore", "Xfrog" or simmilar
+      grype $AWS_ECR_URL/syllo-$SRVC:latest
+
+      docker push $AWS_ECR_URL/syllo-$SRVC:latest
+      docker push $AWS_ECR_URL/syllo-$SRVC:$(cat package.json | jq -r .version)
+
+      # CALL AWS API TO CHECK FOR ECR SCAN LEVELS AND FAIL IF DANGEROUS LEVELS FOUND
+
+as-build:
+  extends: .prereqs
+  stage: build-images
+  needs: *need
+  script:
+    - cd packages/as
+    # IMPLEMENT SOME METHOD (EX: USING ARTIFACTS) TO THANSMIT INFO TO NEXT STAGE
+    # WE SHOULD COMPARE TO ECR ON BUILD ANYHOW
+    # AND NOT COMPLICATED CHECKS IN EACH STAGE
+    - |
+      echo "Checking for already published version..."
+      SRVC=as
+      ECRVERSION=$(aws ecr describe-images --repository-name syllo-$SRVC --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[0]' --output text)
+      if [ $ECRVERSION == "latest" ]; then ECRVERSION=$(aws ecr describe-images --repository-name syllo-$SRVC --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[1]' --output text); fi
+      echo "Latest ECR image version found: v$ECRVERSION"
+      echo "Local version: v$VERSION"
+      # ecrarr=$(echo $ECRVERSION | sed "s/\./\ /g")
+      # versionarr=$(echo $VERSION | sed "s/\./\ /g")
+      # SUMECR=$(($(echo $ecrarr | awk '{print $1}') * 10000 + $(echo $ecrarr | awk '{print $2}') * 1000 + $(echo $ecrarr | awk '{print $3}')))
+      # SUMVERSION=$(($(echo $versionarr | awk '{print $1}') * 10000 + $(echo $versionarr | awk '{print $2}') * 1000 + $(echo $versionarr | awk '{print $3}')))
+      # if [ "$SUMECR" -ge $SUMVERSION ]; then
+      aws ecr describe-images --no-paginate --repository-name syllo-$SRVC --image-ids imageTag=$VERSION > /dev/null 2>&1 || isFound=false
+      if [ "$isFound" != "false" ]; then
+        echo -e "\e[0;91mECR repository already has versions greater than this build!\e[0m"
+        if [ "$FORCE_BUILD" == "false" ]; then
+          echo "Done here! Moving on...!" && exit 0
+        fi
+      fi
+      if [ "$FORCE_BUILD" == "true" ]; then echo -e "\e[0;91mForced rebuild option selected!\e[0m"; fi
+      docker pull $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy
+      if [ -n "$PLUGINS" ]; then
+        # Use ALL plugins, until we find a better solution
+        # for PLUGIN in ../plugins/*; do
+        # This is a better solution
+        for PLUGIN in $(echo $PLUGINS | sed "s/,/ /g"); do
+          PLUGIN=$(basename $PLUGIN)
+          LOCALVER=$(jq -r '.version' ../plugins/"$PLUGIN"/package.json)
+          tmp=$(mktemp)
+          jq '.dependencies += {"@syllo/'"$PLUGIN"'":"'"$LOCALVER"'"}' package.json > "$tmp" && mv "$tmp" package.json
+        done
+      fi
+      docker build -t $AWS_ECR_URL/syllo-$SRVC:latest --build-arg DOCKER_REPO="$CI_REGISTRY/$DOCKER_REGISTRY/" .
+      docker tag $AWS_ECR_URL/syllo-$SRVC:latest $AWS_ECR_URL/syllo-$SRVC:$(cat package.json | jq -r .version)
+
+      # RUN DOCKER IMAGE VULNERABILITY/SECURITY SCANS WITH "SNYK", "Anchore", "Xfrog" or simmilar
+      grype $AWS_ECR_URL/syllo-$SRVC:latest
+
+      docker push $AWS_ECR_URL/syllo-$SRVC:latest
+      docker push $AWS_ECR_URL/syllo-$SRVC:$(cat package.json | jq -r .version)
+
+      # CALL AWS API TO CHECK FOR ECR SCAN LEVELS AND FAIL IF DANGEROUS LEVELS FOUND
+
+config-build:
+  extends: .prereqs
+  stage: build-images
+  needs: *need
+  script:
+    - cd ./packages/config
+    # IMPLEMENT SOME METHOD (EX: USING ARTIFACTS) TO THANSMIT INFO TO NEXT STAGE
+    # WE SHOULD COMPARE TO ECR ON BUILD ANYHOW
+    # AND NOT COMPLICATED CHECKS IN EACH STAGE
+    - |
+      echo "Checking for already published version..."
+      SRVC=config
+      ECRVERSION=$(aws ecr describe-images --repository-name syllo-$SRVC --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[0]' --output text)
+      if [ $ECRVERSION == "latest" ]; then ECRVERSION=$(aws ecr describe-images --repository-name syllo-$SRVC --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[1]' --output text); fi
+      echo "Latest ECR image version found: v$ECRVERSION"
+      echo "Local version: v$VERSION"
+      # ecrarr=$(echo $ECRVERSION | sed "s/\./\ /g")
+      # versionarr=$(echo $VERSION | sed "s/\./\ /g")
+      # SUMECR=$(($(echo $ecrarr | awk '{print $1}') * 10000 + $(echo $ecrarr | awk '{print $2}') * 1000 + $(echo $ecrarr | awk '{print $3}')))
+      # SUMVERSION=$(($(echo $versionarr | awk '{print $1}') * 10000 + $(echo $versionarr | awk '{print $2}') * 1000 + $(echo $versionarr | awk '{print $3}')))
+      # if [ "$SUMECR" -ge $SUMVERSION ]; then
+      aws ecr describe-images --no-paginate --repository-name syllo-$SRVC --image-ids imageTag=$VERSION > /dev/null 2>&1 || isFound=false
+      if [ "$isFound" != "false" ]; then
+        echo -e "\e[0;91mECR repository already has versions greater than this build!\e[0m"
+        if [ "$FORCE_BUILD" == "false" ]; then
+          echo "Done here! Moving on...!" && exit 0
+        fi
+      fi
+      if [ "$FORCE_BUILD" == "true" ]; then echo -e "\e[0;91mForced rebuild option selected!\e[0m"; fi
+      docker pull $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy
+      if [ -n "$PLUGINS" ]; then
+        # Use ALL plugins, until we find a better solution
+        # for PLUGIN in ../plugins/*; do
+        # This is a better solution
+        for PLUGIN in $(echo $PLUGINS | sed "s/,/ /g"); do
+          PLUGIN=$(basename $PLUGIN)
+          LOCALVER=$(jq -r '.version' ../plugins/"$PLUGIN"/package.json)
+          tmp=$(mktemp)
+          jq '.dependencies += {"@syllo/'"$PLUGIN"'":"'"$LOCALVER"'"}' package.json > "$tmp" && mv "$tmp" package.json
+        done
+      fi
+      docker build -t $AWS_ECR_URL/syllo-$SRVC:latest --build-arg DOCKER_REPO="$CI_REGISTRY/$DOCKER_REGISTRY/" .
+      docker tag $AWS_ECR_URL/syllo-$SRVC:latest $AWS_ECR_URL/syllo-$SRVC:$(cat package.json | jq -r .version)
+
+      # RUN DOCKER IMAGE VULNERABILITY/SECURITY SCANS WITH "SNYK", "Anchore", "Xfrog" or simmilar
+      grype $AWS_ECR_URL/syllo-$SRVC:latest
+
+      docker push $AWS_ECR_URL/syllo-$SRVC:latest
+      docker push $AWS_ECR_URL/syllo-$SRVC:$(cat package.json | jq -r .version)
+
+      # CALL AWS API TO CHECK FOR ECR SCAN LEVELS AND FAIL IF DANGEROUS LEVELS FOUND
+
+cs-build:
+  extends: .prereqs
+  stage: build-images
+  needs: *need
+  script:
+    - cd ./packages/cs
+    # IMPLEMENT SOME METHOD (EX: USING ARTIFACTS) TO THANSMIT INFO TO NEXT STAGE
+    # WE SHOULD COMPARE TO ECR ON BUILD ANYHOW
+    # AND NOT COMPLICATED CHECKS IN EACH STAGE
+    - |
+      echo "Checking for already published version..."
+      SRVC=cs
+      ECRVERSION=$(aws ecr describe-images --repository-name syllo-$SRVC --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[0]' --output text)
+      if [ $ECRVERSION == "latest" ]; then ECRVERSION=$(aws ecr describe-images --repository-name syllo-$SRVC --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[1]' --output text); fi
+      echo "Latest ECR image version found: v$ECRVERSION"
+      echo "Local version: v$VERSION"
+      # ecrarr=$(echo $ECRVERSION | sed "s/\./\ /g")
+      # versionarr=$(echo $VERSION | sed "s/\./\ /g")
+      # SUMECR=$(($(echo $ecrarr | awk '{print $1}') * 10000 + $(echo $ecrarr | awk '{print $2}') * 1000 + $(echo $ecrarr | awk '{print $3}')))
+      # SUMVERSION=$(($(echo $versionarr | awk '{print $1}') * 10000 + $(echo $versionarr | awk '{print $2}') * 1000 + $(echo $versionarr | awk '{print $3}')))
+      # if [ "$SUMECR" -ge $SUMVERSION ]; then
+      aws ecr describe-images --no-paginate --repository-name syllo-$SRVC --image-ids imageTag=$VERSION > /dev/null 2>&1 || isFound=false
+      if [ "$isFound" != "false" ]; then
+        echo -e "\e[0;91mECR repository already has versions greater than this build!\e[0m"
+        if [ "$FORCE_BUILD" == "false" ]; then
+          echo "Done here! Moving on...!" && exit 0
+        fi
+      fi
+      if [ "$FORCE_BUILD" == "true" ]; then echo -e "\e[0;91mForced rebuild option selected!\e[0m"; fi
+      docker pull $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy
+      if [ -n "$PLUGINS" ]; then
+        # Use ALL plugins, until we find a better solution
+        # for PLUGIN in ../plugins/*; do
+        # This is a better solution
+        for PLUGIN in $(echo $PLUGINS | sed "s/,/ /g"); do
+          PLUGIN=$(basename $PLUGIN)
+          LOCALVER=$(jq -r '.version' ../plugins/"$PLUGIN"/package.json)
+          tmp=$(mktemp)
+          jq '.dependencies += {"@syllo/'"$PLUGIN"'":"'"$LOCALVER"'"}' package.json > "$tmp" && mv "$tmp" package.json
+        done
+      fi
+      docker build -t $AWS_ECR_URL/syllo-$SRVC:latest --build-arg DOCKER_REPO="$CI_REGISTRY/$DOCKER_REGISTRY/" .
+      docker tag $AWS_ECR_URL/syllo-$SRVC:latest $AWS_ECR_URL/syllo-$SRVC:$(cat package.json | jq -r .version)
+
+      # RUN DOCKER IMAGE VULNERABILITY/SECURITY SCANS WITH "SNYK", "Anchore", "Xfrog" or simmilar
+      grype $AWS_ECR_URL/syllo-$SRVC:latest
+
+      docker push $AWS_ECR_URL/syllo-$SRVC:latest
+      docker push $AWS_ECR_URL/syllo-$SRVC:$(cat package.json | jq -r .version)
+
+      # CALL AWS API TO CHECK FOR ECR SCAN LEVELS AND FAIL IF DANGEROUS LEVELS FOUND
+
+els-build:
+  extends: .prereqs
+  stage: build-images
+  needs: *need
+  script:
+    - cd ./packages/els
+    # IMPLEMENT SOME METHOD (EX: USING ARTIFACTS) TO THANSMIT INFO TO NEXT STAGE
+    # WE SHOULD COMPARE TO ECR ON BUILD ANYHOW
+    # AND NOT COMPLICATED CHECKS IN EACH STAGE
+    - |
+      echo "Checking for already published version..."
+      SRVC=els
+      ECRVERSION=$(aws ecr describe-images --repository-name syllo-$SRVC --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[0]' --output text)
+      if [ $ECRVERSION == "latest" ]; then ECRVERSION=$(aws ecr describe-images --repository-name syllo-$SRVC --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[1]' --output text); fi
+      echo "Latest ECR image version found: v$ECRVERSION"
+      echo "Local version: v$VERSION"
+      # ecrarr=$(echo $ECRVERSION | sed "s/\./\ /g")
+      # versionarr=$(echo $VERSION | sed "s/\./\ /g")
+      # SUMECR=$(($(echo $ecrarr | awk '{print $1}') * 10000 + $(echo $ecrarr | awk '{print $2}') * 1000 + $(echo $ecrarr | awk '{print $3}')))
+      # SUMVERSION=$(($(echo $versionarr | awk '{print $1}') * 10000 + $(echo $versionarr | awk '{print $2}') * 1000 + $(echo $versionarr | awk '{print $3}')))
+      # if [ "$SUMECR" -ge $SUMVERSION ]; then
+      aws ecr describe-images --no-paginate --repository-name syllo-$SRVC --image-ids imageTag=$VERSION > /dev/null 2>&1 || isFound=false
+      if [ "$isFound" != "false" ]; then
+        echo -e "\e[0;91mECR repository already has versions greater than this build!\e[0m"
+        if [ "$FORCE_BUILD" == "false" ]; then
+          echo "Done here! Moving on...!" && exit 0
+        fi
+      fi
+      if [ "$FORCE_BUILD" == "true" ]; then echo -e "\e[0;91mForced rebuild option selected!\e[0m"; fi
+      docker pull $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy
+      if [ -n "$PLUGINS" ]; then
+        # Use ALL plugins, until we find a better solution
+        # for PLUGIN in ../plugins/*; do
+        # This is a better solution
+        for PLUGIN in $(echo $PLUGINS | sed "s/,/ /g"); do
+          PLUGIN=$(basename $PLUGIN)
+          LOCALVER=$(jq -r '.version' ../plugins/"$PLUGIN"/package.json)
+          tmp=$(mktemp)
+          jq '.dependencies += {"@syllo/'"$PLUGIN"'":"'"$LOCALVER"'"}' package.json > "$tmp" && mv "$tmp" package.json
+        done
+      fi
+      docker build -t $AWS_ECR_URL/syllo-$SRVC:latest --build-arg DOCKER_REPO="$CI_REGISTRY/$DOCKER_REGISTRY/" .
+      docker tag $AWS_ECR_URL/syllo-$SRVC:latest $AWS_ECR_URL/syllo-$SRVC:$(cat package.json | jq -r .version)
+
+      # RUN DOCKER IMAGE VULNERABILITY/SECURITY SCANS WITH "SNYK", "Anchore", "Xfrog" or simmilar
+      grype $AWS_ECR_URL/syllo-$SRVC:latest
+
+      docker push $AWS_ECR_URL/syllo-$SRVC:latest
+      docker push $AWS_ECR_URL/syllo-$SRVC:$(cat package.json | jq -r .version)
+
+      # CALL AWS API TO CHECK FOR ECR SCAN LEVELS AND FAIL IF DANGEROUS LEVELS FOUND
+
+fs-build:
+  extends: .prereqs
+  stage: build-images
+  needs: *need
+  script:
+    - cd ./packages/fs
+    # IMPLEMENT SOME METHOD (EX: USING ARTIFACTS) TO THANSMIT INFO TO NEXT STAGE
+    # WE SHOULD COMPARE TO ECR ON BUILD ANYHOW
+    # AND NOT COMPLICATED CHECKS IN EACH STAGE
+    - |
+      echo "Checking for already published version..."
+      SRVC=fs
+      ECRVERSION=$(aws ecr describe-images --repository-name syllo-$SRVC --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[0]' --output text)
+      if [ $ECRVERSION == "latest" ]; then ECRVERSION=$(aws ecr describe-images --repository-name syllo-$SRVC --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[1]' --output text); fi
+      echo "Latest ECR image version found: v$ECRVERSION"
+      echo "Local version: v$VERSION"
+      # ecrarr=$(echo $ECRVERSION | sed "s/\./\ /g")
+      # versionarr=$(echo $VERSION | sed "s/\./\ /g")
+      # SUMECR=$(($(echo $ecrarr | awk '{print $1}') * 10000 + $(echo $ecrarr | awk '{print $2}') * 1000 + $(echo $ecrarr | awk '{print $3}')))
+      # SUMVERSION=$(($(echo $versionarr | awk '{print $1}') * 10000 + $(echo $versionarr | awk '{print $2}') * 1000 + $(echo $versionarr | awk '{print $3}')))
+      # if [ "$SUMECR" -ge $SUMVERSION ]; then
+      aws ecr describe-images --no-paginate --repository-name syllo-$SRVC --image-ids imageTag=$VERSION > /dev/null 2>&1 || isFound=false
+      if [ "$isFound" != "false" ]; then
+        echo -e "\e[0;91mECR repository already has versions greater than this build!\e[0m"
+        if [ "$FORCE_BUILD" == "false" ]; then
+          echo "Done here! Moving on...!" && exit 0
+        fi
+      fi
+      if [ "$FORCE_BUILD" == "true" ]; then echo -e "\e[0;91mForced rebuild option selected!\e[0m"; fi
+      docker pull $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy
+      if [ -n "$PLUGINS" ]; then
+        # Use ALL plugins, until we find a better solution
+        # for PLUGIN in ../plugins/*; do
+        # This is a better solution
+        for PLUGIN in $(echo $PLUGINS | sed "s/,/ /g"); do
+          PLUGIN=$(basename $PLUGIN)
+          LOCALVER=$(jq -r '.version' ../plugins/"$PLUGIN"/package.json)
+          tmp=$(mktemp)
+          jq '.dependencies += {"@syllo/'"$PLUGIN"'":"'"$LOCALVER"'"}' package.json > "$tmp" && mv "$tmp" package.json
+        done
+      fi
+      docker build -t $AWS_ECR_URL/syllo-$SRVC:latest --build-arg DOCKER_REPO="$CI_REGISTRY/$DOCKER_REGISTRY/" .
+      docker tag $AWS_ECR_URL/syllo-$SRVC:latest $AWS_ECR_URL/syllo-$SRVC:$(cat package.json | jq -r .version)
+
+      # RUN DOCKER IMAGE VULNERABILITY/SECURITY SCANS WITH "SNYK", "Anchore", "Xfrog" or simmilar
+      grype $AWS_ECR_URL/syllo-$SRVC:latest
+
+      docker push $AWS_ECR_URL/syllo-$SRVC:latest
+      docker push $AWS_ECR_URL/syllo-$SRVC:$(cat package.json | jq -r .version)
+
+      # CALL AWS API TO CHECK FOR ECR SCAN LEVELS AND FAIL IF DANGEROUS LEVELS FOUND
+
+kyc-build:
+  extends: .prereqs
+  stage: build-images
+  needs: *need
+  retry: 1
+  script:
+    - cd ./packages/kyc
+    # IMPLEMENT SOME METHOD (EX: USING ARTIFACTS) TO THANSMIT INFO TO NEXT STAGE
+    # WE SHOULD COMPARE TO ECR ON BUILD ANYHOW
+    # AND NOT COMPLICATED CHECKS IN EACH STAGE
+    - |
+      echo "Checking for already published version..."
+      SRVC=kyc
+      ECRVERSION=$(aws ecr describe-images --repository-name syllo-$SRVC --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[0]' --output text)
+      if [ $ECRVERSION == "latest" ]; then ECRVERSION=$(aws ecr describe-images --repository-name syllo-$SRVC --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[1]' --output text); fi
+      echo "Latest ECR image version found: v$ECRVERSION"
+      echo "Local version: v$VERSION"
+      # ecrarr=$(echo $ECRVERSION | sed "s/\./\ /g")
+      # versionarr=$(echo $VERSION | sed "s/\./\ /g")
+      # SUMECR=$(($(echo $ecrarr | awk '{print $1}') * 10000 + $(echo $ecrarr | awk '{print $2}') * 1000 + $(echo $ecrarr | awk '{print $3}')))
+      # SUMVERSION=$(($(echo $versionarr | awk '{print $1}') * 10000 + $(echo $versionarr | awk '{print $2}') * 1000 + $(echo $versionarr | awk '{print $3}')))
+      # if [ "$SUMECR" -ge $SUMVERSION ]; then
+      aws ecr describe-images --no-paginate --repository-name syllo-$SRVC --image-ids imageTag=$VERSION > /dev/null 2>&1 || isFound=false
+      if [ "$isFound" != "false" ]; then
+        echo -e "\e[0;91mECR repository already has versions greater than this build!\e[0m"
+        if [ "$FORCE_BUILD" == "false" ]; then
+          echo "Done here! Moving on...!" && exit 0
+        fi
+      fi
+      if [ "$FORCE_BUILD" == "true" ]; then echo -e "\e[0;91mForced rebuild option selected!\e[0m"; fi
+      docker pull $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy
+      if [ -n "$PLUGINS" ]; then
+        # Use ALL plugins, until we find a better solution
+        # for PLUGIN in ../plugins/*; do
+        # This is a better solution
+        for PLUGIN in $(echo $PLUGINS | sed "s/,/ /g"); do
+          PLUGIN=$(basename $PLUGIN)
+          LOCALVER=$(jq -r '.version' ../plugins/"$PLUGIN"/package.json)
+          tmp=$(mktemp)
+          jq '.dependencies += {"@syllo/'"$PLUGIN"'":"'"$LOCALVER"'"}' package.json > "$tmp" && mv "$tmp" package.json
+        done
+      fi
+      docker build -t $AWS_ECR_URL/syllo-$SRVC:latest --build-arg DOCKER_REPO="$CI_REGISTRY/$DOCKER_REGISTRY/" .
+      docker tag $AWS_ECR_URL/syllo-$SRVC:latest $AWS_ECR_URL/syllo-$SRVC:$(cat package.json | jq -r .version)
+
+      # RUN DOCKER IMAGE VULNERABILITY/SECURITY SCANS WITH "SNYK", "Anchore", "Xfrog" or simmilar
+      grype $AWS_ECR_URL/syllo-$SRVC:latest
+
+      docker push $AWS_ECR_URL/syllo-$SRVC:latest
+      docker push $AWS_ECR_URL/syllo-$SRVC:$(cat package.json | jq -r .version)
+
+      # CALL AWS API TO CHECK FOR ECR SCAN LEVELS AND FAIL IF DANGEROUS LEVELS FOUND
+
+mps-build:
+  extends: .prereqs
+  stage: build-images
+  needs: *need
+  script:
+    - cd ./packages/mps
+    # IMPLEMENT SOME METHOD (EX: USING ARTIFACTS) TO THANSMIT INFO TO NEXT STAGE
+    # WE SHOULD COMPARE TO ECR ON BUILD ANYHOW
+    # AND NOT COMPLICATED CHECKS IN EACH STAGE
+    - |
+      echo "Checking for already published version..."
+      SRVC=mps
+      ECRVERSION=$(aws ecr describe-images --repository-name syllo-$SRVC --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[0]' --output text)
+      if [ $ECRVERSION == "latest" ]; then ECRVERSION=$(aws ecr describe-images --repository-name syllo-$SRVC --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[1]' --output text); fi
+      echo "Latest ECR image version found: v$ECRVERSION"
+      echo "Local version: v$VERSION"
+      # ecrarr=$(echo $ECRVERSION | sed "s/\./\ /g")
+      # versionarr=$(echo $VERSION | sed "s/\./\ /g")
+      # SUMECR=$(($(echo $ecrarr | awk '{print $1}') * 10000 + $(echo $ecrarr | awk '{print $2}') * 1000 + $(echo $ecrarr | awk '{print $3}')))
+      # SUMVERSION=$(($(echo $versionarr | awk '{print $1}') * 10000 + $(echo $versionarr | awk '{print $2}') * 1000 + $(echo $versionarr | awk '{print $3}')))
+      # if [ "$SUMECR" -ge $SUMVERSION ]; then
+      aws ecr describe-images --no-paginate --repository-name syllo-$SRVC --image-ids imageTag=$VERSION > /dev/null 2>&1 || isFound=false
+      if [ "$isFound" != "false" ]; then
+        echo -e "\e[0;91mECR repository already has versions greater than this build!\e[0m"
+        if [ "$FORCE_BUILD" == "false" ]; then
+          echo "Done here! Moving on...!" && exit 0
+        fi
+      fi
+      if [ "$FORCE_BUILD" == "true" ]; then echo -e "\e[0;91mForced rebuild option selected!\e[0m"; fi
+      docker pull $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy
+      if [ -n "$PLUGINS" ]; then
+        # Use ALL plugins, until we find a better solution
+        # for PLUGIN in ../plugins/*; do
+        # This is a better solution
+        for PLUGIN in $(echo $PLUGINS | sed "s/,/ /g"); do
+          PLUGIN=$(basename $PLUGIN)
+          LOCALVER=$(jq -r '.version' ../plugins/"$PLUGIN"/package.json)
+          tmp=$(mktemp)
+          jq '.dependencies += {"@syllo/'"$PLUGIN"'":"'"$LOCALVER"'"}' package.json > "$tmp" && mv "$tmp" package.json
+        done
+      fi
+      docker build -t $AWS_ECR_URL/syllo-$SRVC:latest --build-arg DOCKER_REPO="$CI_REGISTRY/$DOCKER_REGISTRY/" .
+      docker tag $AWS_ECR_URL/syllo-$SRVC:latest $AWS_ECR_URL/syllo-$SRVC:$(cat package.json | jq -r .version)
+
+      # RUN DOCKER IMAGE VULNERABILITY/SECURITY SCANS WITH "SNYK", "Anchore", "Xfrog" or simmilar
+      grype $AWS_ECR_URL/syllo-$SRVC:latest
+
+      docker push $AWS_ECR_URL/syllo-$SRVC:latest
+      docker push $AWS_ECR_URL/syllo-$SRVC:$(cat package.json | jq -r .version)
+
+      # CALL AWS API TO CHECK FOR ECR SCAN LEVELS AND FAIL IF DANGEROUS LEVELS FOUND
+
+ps-build:
+  extends: .prereqs
+  stage: build-images
+  needs: *need
+  script:
+    - cd ./packages/ps
+    # IMPLEMENT SOME METHOD (EX: USING ARTIFACTS) TO THANSMIT INFO TO NEXT STAGE
+    # WE SHOULD COMPARE TO ECR ON BUILD ANYHOW
+    # AND NOT COMPLICATED CHECKS IN EACH STAGE
+    - |
+      echo "Checking for already published version..."
+      SRVC=ps
+      ECRVERSION=$(aws ecr describe-images --repository-name syllo-$SRVC --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[0]' --output text)
+      if [ $ECRVERSION == "latest" ]; then ECRVERSION=$(aws ecr describe-images --repository-name syllo-$SRVC --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[1]' --output text); fi
+      echo "Latest ECR image version found: v$ECRVERSION"
+      echo "Local version: v$VERSION"
+      # ecrarr=$(echo $ECRVERSION | sed "s/\./\ /g")
+      # versionarr=$(echo $VERSION | sed "s/\./\ /g")
+      # SUMECR=$(($(echo $ecrarr | awk '{print $1}') * 10000 + $(echo $ecrarr | awk '{print $2}') * 1000 + $(echo $ecrarr | awk '{print $3}')))
+      # SUMVERSION=$(($(echo $versionarr | awk '{print $1}') * 10000 + $(echo $versionarr | awk '{print $2}') * 1000 + $(echo $versionarr | awk '{print $3}')))
+      # if [ "$SUMECR" -ge $SUMVERSION ]; then
+      aws ecr describe-images --no-paginate --repository-name syllo-$SRVC --image-ids imageTag=$VERSION > /dev/null 2>&1 || isFound=false
+      if [ "$isFound" != "false" ]; then
+        echo -e "\e[0;91mECR repository already has versions greater than this build!\e[0m"
+        if [ "$FORCE_BUILD" == "false" ]; then
+          echo "Done here! Moving on...!" && exit 0
+        fi
+      fi
+      if [ "$FORCE_BUILD" == "true" ]; then echo -e "\e[0;91mForced rebuild option selected!\e[0m"; fi
+      docker pull $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy
+      if [ -n "$PLUGINS" ]; then
+        # Use ALL plugins, until we find a better solution
+        # for PLUGIN in ../plugins/*; do
+        # This is a better solution
+        for PLUGIN in $(echo $PLUGINS | sed "s/,/ /g"); do
+          PLUGIN=$(basename $PLUGIN)
+          LOCALVER=$(jq -r '.version' ../plugins/"$PLUGIN"/package.json)
+          tmp=$(mktemp)
+          jq '.dependencies += {"@syllo/'"$PLUGIN"'":"'"$LOCALVER"'"}' package.json > "$tmp" && mv "$tmp" package.json
+        done
+      fi
+      docker build -t $AWS_ECR_URL/syllo-$SRVC:latest --build-arg DOCKER_REPO="$CI_REGISTRY/$DOCKER_REGISTRY/" .
+      docker tag $AWS_ECR_URL/syllo-$SRVC:latest $AWS_ECR_URL/syllo-$SRVC:$(cat package.json | jq -r .version)
+
+      # RUN DOCKER IMAGE VULNERABILITY/SECURITY SCANS WITH "SNYK", "Anchore", "Xfrog" or simmilar
+      grype $AWS_ECR_URL/syllo-$SRVC:latest
+
+      docker push $AWS_ECR_URL/syllo-$SRVC:latest
+      docker push $AWS_ECR_URL/syllo-$SRVC:$(cat package.json | jq -r .version)
+
+      # CALL AWS API TO CHECK FOR ECR SCAN LEVELS AND FAIL IF DANGEROUS LEVELS FOUND
+
+pubsub-build:
+  extends: .prereqs
+  stage: build-images
+  needs: *need
+  script:
+    - cd ./packages/pubsub
+    # IMPLEMENT SOME METHOD (EX: USING ARTIFACTS) TO THANSMIT INFO TO NEXT STAGE
+    # WE SHOULD COMPARE TO ECR ON BUILD ANYHOW
+    # AND NOT COMPLICATED CHECKS IN EACH STAGE
+    - |
+      echo "Checking for already published version..."
+      SRVC=pubsub
+      ECRVERSION=$(aws ecr describe-images --repository-name syllo-$SRVC --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[0]' --output text)
+      if [ $ECRVERSION == "latest" ]; then ECRVERSION=$(aws ecr describe-images --repository-name syllo-$SRVC --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[1]' --output text); fi
+      echo "Latest ECR image version found: v$ECRVERSION"
+      echo "Local version: v$VERSION"
+      # ecrarr=$(echo $ECRVERSION | sed "s/\./\ /g")
+      # versionarr=$(echo $VERSION | sed "s/\./\ /g")
+      # SUMECR=$(($(echo $ecrarr | awk '{print $1}') * 10000 + $(echo $ecrarr | awk '{print $2}') * 1000 + $(echo $ecrarr | awk '{print $3}')))
+      # SUMVERSION=$(($(echo $versionarr | awk '{print $1}') * 10000 + $(echo $versionarr | awk '{print $2}') * 1000 + $(echo $versionarr | awk '{print $3}')))
+      # if [ "$SUMECR" -ge $SUMVERSION ]; then
+      aws ecr describe-images --no-paginate --repository-name syllo-$SRVC --image-ids imageTag=$VERSION > /dev/null 2>&1 || isFound=false
+      if [ "$isFound" != "false" ]; then
+        echo -e "\e[0;91mECR repository already has versions greater than this build!\e[0m"
+        if [ "$FORCE_BUILD" == "false" ]; then
+          echo "Done here! Moving on...!" && exit 0
+        fi
+      fi
+      if [ "$FORCE_BUILD" == "true" ]; then echo -e "\e[0;91mForced rebuild option selected!\e[0m"; fi
+      docker pull $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy
+      if [ -n "$PLUGINS" ]; then
+        # Use ALL plugins, until we find a better solution
+        # for PLUGIN in ../plugins/*; do
+        # This is a better solution
+        for PLUGIN in $(echo $PLUGINS | sed "s/,/ /g"); do
+          PLUGIN=$(basename $PLUGIN)
+          LOCALVER=$(jq -r '.version' ../plugins/"$PLUGIN"/package.json)
+          tmp=$(mktemp)
+          jq '.dependencies += {"@syllo/'"$PLUGIN"'":"'"$LOCALVER"'"}' package.json > "$tmp" && mv "$tmp" package.json
+        done
+      fi
+      docker build -t $AWS_ECR_URL/syllo-$SRVC:latest --build-arg DOCKER_REPO="$CI_REGISTRY/$DOCKER_REGISTRY/" .
+      docker tag $AWS_ECR_URL/syllo-$SRVC:latest $AWS_ECR_URL/syllo-$SRVC:$(cat package.json | jq -r .version)
+
+      # RUN DOCKER IMAGE VULNERABILITY/SECURITY SCANS WITH "SNYK", "Anchore", "Xfrog" or simmilar
+      grype $AWS_ECR_URL/syllo-$SRVC:latest
+
+      docker push $AWS_ECR_URL/syllo-$SRVC:latest
+      docker push $AWS_ECR_URL/syllo-$SRVC:$(cat package.json | jq -r .version)
+
+      # CALL AWS API TO CHECK FOR ECR SCAN LEVELS AND FAIL IF DANGEROUS LEVELS FOUND
+
+webhook-build:
+  extends: .prereqs
+  stage: build-images
+  needs: *need
+  script:
+    - cd ./packages/webhook
+    # IMPLEMENT SOME METHOD (EX: USING ARTIFACTS) TO THANSMIT INFO TO NEXT STAGE
+    # WE SHOULD COMPARE TO ECR ON BUILD ANYHOW
+    # AND NOT COMPLICATED CHECKS IN EACH STAGE
+    - |
+      echo "Checking for already published version..."
+      SRVC=webhook
+      ECRVERSION=$(aws ecr describe-images --repository-name syllo-$SRVC --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[0]' --output text)
+      if [ $ECRVERSION == "latest" ]; then ECRVERSION=$(aws ecr describe-images --repository-name syllo-$SRVC --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[1]' --output text); fi
+      echo "Latest ECR image version found: v$ECRVERSION"
+      echo "Local version: v$VERSION"
+      # ecrarr=$(echo $ECRVERSION | sed "s/\./\ /g")
+      # versionarr=$(echo $VERSION | sed "s/\./\ /g")
+      # SUMECR=$(($(echo $ecrarr | awk '{print $1}') * 10000 + $(echo $ecrarr | awk '{print $2}') * 1000 + $(echo $ecrarr | awk '{print $3}')))
+      # SUMVERSION=$(($(echo $versionarr | awk '{print $1}') * 10000 + $(echo $versionarr | awk '{print $2}') * 1000 + $(echo $versionarr | awk '{print $3}')))
+      # if [ "$SUMECR" -ge $SUMVERSION ]; then
+      aws ecr describe-images --no-paginate --repository-name syllo-$SRVC --image-ids imageTag=$VERSION > /dev/null 2>&1 || isFound=false
+      if [ "$isFound" != "false" ]; then
+        echo -e "\e[0;91mECR repository already has versions greater than this build!\e[0m"
+        if [ "$FORCE_BUILD" == "false" ]; then
+          echo "Done here! Moving on...!" && exit 0
+        fi
+      fi
+      if [ "$FORCE_BUILD" == "true" ]; then echo -e "\e[0;91mForced rebuild option selected!\e[0m"; fi
+      docker pull $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy
+      if [ -n "$PLUGINS" ]; then
+        # Use ALL plugins, until we find a better solution
+        # for PLUGIN in ../plugins/*; do
+        # This is a better solution
+        for PLUGIN in $(echo $PLUGINS | sed "s/,/ /g"); do
+          PLUGIN=$(basename $PLUGIN)
+          LOCALVER=$(jq -r '.version' ../plugins/"$PLUGIN"/package.json)
+          tmp=$(mktemp)
+          jq '.dependencies += {"@syllo/'"$PLUGIN"'":"'"$LOCALVER"'"}' package.json > "$tmp" && mv "$tmp" package.json
+        done
+      fi
+      docker build -t $AWS_ECR_URL/syllo-$SRVC:latest --build-arg DOCKER_REPO="$CI_REGISTRY/$DOCKER_REGISTRY/" .
+      docker tag $AWS_ECR_URL/syllo-$SRVC:latest $AWS_ECR_URL/syllo-$SRVC:$(cat package.json | jq -r .version)
+
+      # RUN DOCKER IMAGE VULNERABILITY/SECURITY SCANS WITH "SNYK", "Anchore", "Xfrog" or simmilar
+      grype $AWS_ECR_URL/syllo-$SRVC:latest
+
+      docker push $AWS_ECR_URL/syllo-$SRVC:latest
+      docker push $AWS_ECR_URL/syllo-$SRVC:$(cat package.json | jq -r .version)
+
+      # CALL AWS API TO CHECK FOR ECR SCAN LEVELS AND FAIL IF DANGEROUS LEVELS FOUND

@@ -1,0 +1,155 @@
+#
+#####################################
+#
+# THESE JOBS MUST BE RUN IN SEQUENCE
+#
+#####################################
+
+.prereqs:
+  only:
+    - stage
+    - master
+    - /^hotfix\/.*$/i
+    - /^release\/.*$/i
+
+start-FULL-deploy:
+  extends: .prereqs
+  stage: prepare
+  needs: []
+  script:
+    - cd ./packages/protobuf
+    - |
+      echo -e "\e[0;93mRequested to build:\e[7;94m v$VERSION \e[0m"
+      echo "Checking for already deployed versions to ECR..."
+      echo -e "\e[3m    Services are to be checked for existence of the current build's versions in ECR."
+      echo -e "    If all services v$VERSION are already in ECR continue with the build only if CI variable 'FORCE_BUILD=true'."
+      echo -e "    Otherwise create a list of services to be build as there might be some already published to the ECR! \e[0m"
+      SERVICES_LIST="api-gateway as config cs els fs kyc mps ps pubsub webhook"
+      #SERVICES_LIST="$(ls packages | grep -v protobuf | grep -v connector)"
+      SERVICES_TO_BUILD=
+      for SERVICE in $SERVICES_LIST; do
+        echo -e -n " - Checking for '\e[0;93msyllo-$SERVICE\e[0m'"
+        aws ecr describe-images --no-paginate --repository-name syllo-$SERVICE --image-ids imageTag=$VERSION > /dev/null 2>&1 || isFound=false
+        if [ "$isFound" = "false" ]; then
+          echo -e " - \e[0;92mAdding to the list of services to build\e[0m"
+          SERVICES_TO_BUILD="$(echo $SERVICES_TO_BUILD $SERVICE | sed 's/ *$//')"
+        else
+          echo -e " - \e[0;91mEXISTS!\e[0m - Latest version found: \e[94m$(aws ecr describe-images --no-paginate --repository-name syllo-$SERVICE --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[]' --output text)\e[0m"
+        fi
+      done
+      echo -e "Compare to '\e[0;93msyllo-api-gateway'\e[0m] since it should be tha last to build;"
+      echo -e " - Latest version of \e[0;93m'syllo-api-gateway'\e[0m found in ECR: \e[0;94m$(aws ecr describe-images --no-paginate --repository-name syllo-api-gateway --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[]' --output text)\e[0m"
+      if [ -z "$SERVICES_TO_BUILD" ]; then
+        echo -e "\e[0;91mECR repository already has all services ov this \e[94mv$VERSION\e[91m published!\e[0m"
+        if [ "$FORCE_BUILD" = "false" ] || [ -z "$FORCE_BUILD" ]; then
+          echo -e "\e[0;91mAbandoning this build!\e[0m"
+          echo -e "\e[0;91mSet CI variable 'FORCE_BUILD' to 'true' to build anyway and run new pipeline!\e[0m" && exit 255
+        fi
+        if [ "$FORCE_BUILD" = "true" ]; then
+          echo -e "\e[0;91mForced rebuild option selected.\e[7m Running the build! \e[0m"
+        fi
+      else
+        echo -e "\e[0;92mCode has versions not found in ECR Repository!\e[7m Running the build! \e[0m"
+        echo -e " - Services to build: \e[0;93m$SERVICES_TO_BUILD\e[0m"
+      fi
+    - |
+      echo -e "Checking for already deployed versions to NPM Package registry for \e[0;94mprotobuf:v$VERSION\e[0m ..."
+      LOCALVER=$(jq -r '.version' package.json)
+      echo -e " - Local version in \e[0;93mpackage.json\e[0m found: \e[94m$LOCALVER\e[0m"
+      if [ "$VERSION" != "$LOCALVER" ]; then
+        echo -e "\e[7;91mERROR! \e[0;91mVersion missmatch!"
+        echo -e "Requested to build \e[0;94mv$VERSION\e[0;91m - but found \e[0;94mv$LOCALVER\e[0;91m in source files! \e[7m Exiting! \e[0m"
+        exit 255
+      fi
+      PKG_ID=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages?per_page=1&order_by=created_at&sort=asc&package_name=@syllo/protobuf" | jq -r '.[].id')
+      NPMVER=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID?per_page=1&order_by=created_at&sort=asc" | jq -r '[.versions | sort_by(.id) | reverse | .[0].version][0]')
+      ANY_TIME_NPM=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID?per_page=1&order_by=created_at&sort=asc" | jq -r '.versions | sort_by(.id) | reverse | .[].version' | grep $VERSION || true)
+      PKG_EXISTS=false
+      if [ "$NPMVER" = null ]; then
+        NPMVER=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID?per_page=1&order_by=created_at&sort=asc" | jq -r '.version')
+        ONLY_ONE=true
+      fi
+      echo -e " - Latest published protobuf NPM package version found: \e[94m$NPMVER\e[0m"
+      if [ -z "$ONLY_ONE" ] && [ -n "$ANY_TIME_NPM" ]; then
+        echo -e " - But earlier published protobuf NPM package version found: \e[94m$ANY_TIME_NPM\e[0m"
+        NPMVER=$ANY_TIME_NPM
+      fi
+      if [ "$NPMVER" = "$LOCALVER" ]; then
+        PKG_EXISTS=true
+        echo -e " - NPM package version \e[94m$LOCALVER\e[0m found in a package registry!"
+      fi
+      if [ "$PKG_EXISTS" = "true" ]; then
+        echo -e "Package version \e[94mv$LOCALVER\e[0m already exists in package registry!"
+        echo -e "\e[7;92mAll done here. Moving on....\e[0m"
+      else
+        # Check if the list contains the version at all
+        # ANYNPMVER=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID?per_page=1&order_by=created_at&sort=asc" | jq -r '[.versions | sort_by(.id) | reverse | .[].version][]' | grep "$VERSION" || true)
+        # if [ -z "$ANYNPMVER" ]; then
+          echo -e "\e[0;92mCode has an unpublished version \e[94mv$LOCALVER\e[92m!\e[7m Running the build!\e[0m"
+          echo -n "$SERVICES_TO_BUILD" > ../../services_to_build.lst
+          docker build -t syllo-protobuf:npm -f ./npm.Dockerfile --build-arg NPM_TOKEN="$NPM_REGISTRY_TOKEN" .
+
+          grype syllo-protobuf:npm
+
+          docker run syllo-protobuf:npm
+          docker rmi syllo-protobuf:npm -f
+          echo -e "\e[7;92mNew NPM Package version \e[94mv$LOCALVER\e[92m pushed to Package registry.\e[0m"
+        # else
+        #   echo -e "Package version \e[94mv$LOCALVER\e[0m already exists in package registry!"
+        #   echo -e "\e[7;92mAll done here. Moving on....\e[0m"
+        # fi
+      fi
+  when: manual
+
+connector-npm-publish:
+  extends: .prereqs
+  stage: npm-publish-connector
+  needs: ["start-FULL-deploy"]
+  script:
+    - cd ./packages/connector
+    - |
+      echo -e "Checking for already deployed versions to NPM Package registry for \e[0;94mconnector:v$VERSION\e[0m ..."
+      LOCALVER=$(jq -r '.version' package.json)
+      echo -e " - Local version in \e[0;93mpackage.json\e[0m found: \e[94m$LOCALVER\e[0m"
+      if [ "$VERSION" != "$LOCALVER" ]; then
+        echo -e "\e[7;91mERROR! \e[0;91mVersion missmatch!"
+        echo -e "Requested to build \e[0;94mv$VERSION\e[0;91m - but found \e[0;94mv$LOCALVER\e[0;91m in source files! \e[7m Exiting! \e[0m"
+        exit 255
+      fi
+      PKG_ID=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages?per_page=1&order_by=created_at&sort=asc&package_name=@syllo/connector" | jq -r '.[].id')
+      NPMVER=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID?per_page=1&order_by=created_at&sort=asc" | jq -r '[.versions | sort_by(.id) | reverse | .[0].version][0]')
+      ANY_TIME_NPM=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID?per_page=1&order_by=created_at&sort=asc" | jq -r '.versions | sort_by(.id) | reverse | .[].version' | grep $VERSION || true)
+      PKG_EXISTS=false
+      if [ "$NPMVER" = null ]; then
+        NPMVER=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID?per_page=1&order_by=created_at&sort=asc" | jq -r '.version')
+        ONLY_ONE=true
+      fi
+      echo -e " - Latest published protobuf NPM package version found: \e[94m$NPMVER\e[0m"
+      if [ -z "$ONLY_ONE" ] && [ -n "$ANY_TIME_NPM" ]; then
+        echo -e " - But earlier published protobuf NPM package version found: \e[94m$ANY_TIME_NPM\e[0m"
+        NPMVER=$ANY_TIME_NPM
+      fi
+      if [ "$NPMVER" = "$LOCALVER" ]; then
+        PKG_EXISTS=true
+        echo -e " - NPM package version \e[94m$LOCALVER\e[0m found in a package registry!"
+      fi
+      if [ "$PKG_EXISTS" = "true" ]; then
+        echo -e "Package version \e[94mv$LOCALVER\e[0m already exists in package registry!"
+        echo -e "\e[7;92mAll done here. Moving on....\e[0m"
+      else
+        # Check if the list contains the version at all
+        # ANYNPMVER=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID?per_page=1&order_by=created_at&sort=asc" | jq -r '[.versions | sort_by(.id) | reverse | .[].version][]' | grep "$VERSION" || true)
+        # if [ -z "$ANYNPMVER" ]; then
+          echo -e "\e[0;92mCode has an unpublished version \e[94mv$LOCALVER\e[92m!\e[7m Running the build!\e[0m"
+          docker build -t syllo-connector:npm -f ./npm.Dockerfile --build-arg NPM_TOKEN="$NPM_REGISTRY_TOKEN" .
+
+          grype syllo-connector:npm
+
+          docker run syllo-connector:npm
+          docker rmi syllo-connector:npm -f
+          echo -e "\e[7;92mNew NPM Package version \e[94mv$LOCALVER\e[92m pushed to Package registry.\e[0m"
+        # else
+        #   echo -e "Package version \e[94mv$LOCALVER\e[0m already exists in package registry!"
+        #   echo -e "\e[7;92mAll done here. Moving on....\e[0m"
+        # fi
+      fi

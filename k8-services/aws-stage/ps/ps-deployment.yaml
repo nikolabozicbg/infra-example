@@ -1,0 +1,134 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tfs-ps-deployment
+  labels:
+    app.kubernetes.io/name: ps
+    app: ps
+  namespace: tfs-ps
+  annotations:
+    linkerd.io/inject: enabled
+spec:
+  selector:
+    matchLabels:
+      app: ps
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: ps
+    spec:
+      containers:
+        - name: syllo-ps
+          image: 309602515679.dkr.ecr.eu-west-1.amazonaws.com/syllo-ps:1.8.3
+          imagePullPolicy: Always
+          resources:
+            limits:
+              memory: 500Mi
+              cpu: "0.4"
+            requests:
+              memory: 300Mi
+              cpu: "0.2"
+          ports:
+            - containerPort: 10014
+          env:
+            - name: npm_package_version
+              value: "1.8.3"
+            - name: ENVIRONMENT
+              value: "production"
+            - name: AS_URL
+              value: "172.20.49.111:10004"
+            - name: CS_URL
+              value: "172.20.122.80:10003"
+            - name: ELS_URL
+              value: "172.20.185.160:10006"
+            - name: FS_URL
+              value: "172.20.142.166:10007"
+            - name: MPS_URL
+              value: "172.20.255.222:10005"
+            - name: KYC_URL
+              value: "172.20.87.236:10002"
+            - name: GRPC_HOST
+              value: "0.0.0.0:10014"
+            - name: CONFIG_URL
+              value: "172.20.176.186:10008"
+            - name: WEBHOOK_URL
+              value: "172.20.167.47:10010"
+            - name: PS_URL
+              value: "172.20.133.143:10014"
+            - name: DB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: ps-secrets
+                  key: mongo-uri
+            - name: MQ_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ps-secrets
+                  key: mq-url
+            - name: DB_TYPE
+              value: "postgres"
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ps-secrets
+                  key: postgres-host
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ps-secrets
+                  key: postgres-port
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ps-secrets
+                  key: postgres-username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ps-secrets
+                  key: postgres-password
+            - name: DB_NAME
+              value: "syllotransfast"
+            - name: DB_SYNC_ENABLED
+              value: "false"
+            - name: DB_MIGRATIONS_ENABLED
+              value: "true"
+            - name: DB_LOGGING
+              value: "true"
+            - name: MAIL_SEND_FROM_NAME
+              value: "TransFast"
+            - name: MAIL_SEND_FROM
+              value: "transfast@pannovate.net"
+            - name: TRUNARRATIVE_API_BASE_URL
+              value: "https://pp.trunarrative.cloud/TruAccountAPI/rest"
+            - name: TRUNARRATIVE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ps-secrets
+                  key: trunarative-user
+            - name: TRUNARRATIVE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ps-secrets
+                  key: trunarative-pass
+            - name: PUBSUB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ps-secrets
+                  key: pubsub-url
+            - name: PLUGINS
+              value: "@syllo/transfast,@syllo/chat"
+            - name: TNB_INVITATION_EXPIRATION_IN_HOURS
+              value: "744"
+            - name: NO_COLOR
+              value: "true"
+            - name: CLIENT
+              value: "TRANSFAST"
+            - name: DEBUG
+              value: "false"

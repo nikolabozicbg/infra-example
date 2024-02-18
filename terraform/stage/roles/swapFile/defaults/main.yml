@@ -1,0 +1,4 @@
+---
+# defaults file for swapFile
+swap_file: /swapfile
+swap_size: 4G

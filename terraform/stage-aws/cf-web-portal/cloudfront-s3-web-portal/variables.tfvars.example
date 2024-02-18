@@ -1,0 +1,13 @@
+bucket_name_id    = "Specify bucket name to be created (bucket name must match domain name exactly)"
+aws_region        = "Specify AWS region to deploy to"
+aws_profile       = "Specify the AWS profile to use for credentials"
+s3_origin         = "Specify new S3 origin identifier for this bucket"
+assume_role_arn   = "ARN of the role for terragrunt to assume"
+s3_acces_role_arn = "ARN of the IAM that can upload files to S3 bucket"
+cluster_role_arn  = "ARN of the k8s nodes IAM role"
+cf_cert_arn       = "The ARN of the certificate for CloudFront (has to be in us-east-1 at the moment)."
+cf_aliases        = ["The list of aliases to use for the same web site at CloudFront"]
+cf_name           = "The descriptive name for the CloudFront"
+cf_comment        = "Text for comment of a CloudFront"
+client            = "Client name for tagging"
+env               = "Environment tag for tagging"

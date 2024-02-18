@@ -1,0 +1,19 @@
+---
+# The Destruction Play. Thius Play will destroy the instance previously created
+# and cleanup local, and remote settings
+- name: Run Terraform to destroy provisioned resources
+  host: localhost
+  roles:
+    - terraformTearDown
+
+# Next, we build a local SSH configuration. This is not necessarily needed, but
+# makes it easy to SSH into the machines using their logical name
+- name: Cleanup Local SSH configuration
+  hosts: localhost
+  roles:
+    - localSshConfigCleanUp
+
+- name: Cleanup any GitLab Configs
+  hosts: alocalhost
+  roles:
+    - GitLabConfigCleanUp

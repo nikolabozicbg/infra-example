@@ -1,0 +1,31 @@
+# https://v1-20.docs.kubernetes.io/docs/concepts/services-networking/service/#loadbalancer
+apiVersion: v1
+kind: Service
+metadata:
+  name: tfs-apigw-service
+  namespace: tfs-apigw
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb" # this should be nlb-ip or external
+    service.beta.kubernetes.io/aws-load-balancer-ssl-cert: "arn:aws:acm:eu-west-1:458838185766:certificate/4fecd36b-e481-4240-b6da-ba86e03a1f03"
+    #service.beta.kubernetes.io/aws-load-balancer-ssl-negotiation-policy: ELBSecurityPolicy-TLS13-1-3-2021-06
+    service.beta.kubernetes.io/aws-load-balancer-ssl-negotiation-policy: ELBSecurityPolicy-TLS-1-2-2017-01
+    service.beta.kubernetes.io/aws-load-balancer-alpn-policy: HTTP2Preferred
+    service.beta.kubernetes.io/aws-load-balancer-target-group-attributes: proxy_protocol_v2.enabled=true,preserve_client_ip.enabled=true
+    service.beta.kubernetes.io/aws-load-balancer-eip-allocations: "eipalloc-0ac2f3fbe98ca16e8,eipalloc-064451e458e3e46b4,eipalloc-05be9409408542ebc"
+    service.beta.kubernetes.io/aws-load-balancer-subnets: "subnet-0c92b960e2f197a95,subnet-03991943587995128,subnet-09893a545b18fc967"
+  labels:
+    app.kubernetes.io/name: apigw
+    app: apigw
+spec:
+  selector:
+    app: apigw
+  ports:
+    - name: https
+      protocol: TCP
+      port: 443
+      targetPort: apigw-grpc-port
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: apigw-grpc-port
+  type: LoadBalancer

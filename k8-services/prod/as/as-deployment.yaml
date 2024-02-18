@@ -1,0 +1,171 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tfs-as-deployment
+  labels:
+    app.kubernetes.io/name: as
+    app: as
+    client: transfast
+  namespace: tfs-as
+  annotations:
+    linkerd.io/inject: enabled
+spec:
+  selector:
+    matchLabels:
+      app: as
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: as
+    spec:
+      containers:
+        - name: syllo-as
+          image: 458838185766.dkr.ecr.eu-west-1.amazonaws.com/syllo-as:1.9.2
+          imagePullPolicy: Always
+          resources:
+            limits:
+              memory: 500Mi
+              cpu: "0.4"
+            requests:
+              memory: 300Mi
+              cpu: "0.2"
+          ports:
+            - containerPort: 10004
+          env:
+            - name: npm_package_version
+              value: "1.9.2"
+            - name: ENVIRONMENT
+              value: "production"
+            - name: GRPC_HOST
+              value: "0.0.0.0:10004"
+            - name: DB_TYPE
+              value: "postgres"
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: as-secrets
+                  key: postgres-host
+            - name: DB_HOST_R1
+              valueFrom:
+                secretKeyRef:
+                  name: as-secrets
+                  key: postgres-host-r1
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: as-secrets
+                  key: postgres-port
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: as-secrets
+                  key: postgres-username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: as-secrets
+                  key: postgres-password
+            - name: DB_NAME
+              value: "syllotransfast"
+            - name: DB_SYNC_ENABLED
+              value: "false"
+            - name: DB_MIGRATIONS_ENABLED
+              value: "true"
+            - name: DB_LOGGING
+              value: "true"
+            - name: MQ_URL
+              valueFrom:
+                secretKeyRef:
+                  name: as-secrets
+                  key: mq-url
+            - name: ELS_URL
+              value: "172.20.135.187:10006"
+            - name: FS_URL
+              value: "172.20.227.208:10007"
+            - name: CS_URL
+              value: "172.20.34.44:10003"
+            - name: WEBHOOK_URL
+              value: "172.20.167.47:10010"
+            - name: PS_URL
+              value: "172.20.133.143:10014"
+            - name: MPS_URL
+              value: "172.20.254.12:10005"
+            - name: KYC_URL
+              value: "172.20.9.88:10002"
+            - name: CONFIG_URL
+              value: "172.20.49.246:10008"
+            - name: PUBSUB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: as-secrets
+                  key: redis-url
+            - name: ONFIDO_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: as-secrets
+                  key: onfido-api-key
+            - name: MAIL_SEND_FROM_NAME
+              value: "TransFast"
+            - name: MAIL_SEND_FROM
+              value: "transfast@pannovate.net"
+            - name: MAIL_SEND_FROM_NO_REPLY
+              value: "transfast@pannovate.net"
+            - name: APPROVED_CORS_ORIGINS
+              value: "https://admin-transfast.stage.pannovate.net,https://d3q7hej0o32zfl.cloudfront.net,https://api.transfast.stage.pannovate.net,https://transfast.syllo.stage.pannovate.net,https://transfast.stage.pannovate.net,https://dsrqz8v7ee2cn.cloudfront.net"
+            - name: MODULR_API_URL
+              value: "https://api.modulrfinance.com/api/"
+            - name: MODULR_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: as-secrets
+                  key: modulr-api-key
+            - name: MODULR_API_SERCET
+              valueFrom:
+                secretKeyRef:
+                  name: as-secrets
+                  key: modulr-api-secret
+            - name: MODULR_WEBHOOK_URL
+              value: "https://api.transfast.pannovate.net/webhooks/modulr/transfast"
+            - name: ACCOMPLISH_API_BASE_URL
+              value: "https://api.nuvopay.com"
+            - name: ACCOMPLISH_GRANT_TYPE
+              value: "program_credential"
+            - name: ACCOMPLISH_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: as-secrets
+                  key: accomplish-username
+            - name: ACCOMPLISH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: as-secrets
+                  key: accomplish-password
+            - name: ACCOMPLISH_PROGRAM_ID
+              valueFrom:
+                secretKeyRef:
+                  name: as-secrets
+                  key: accomplish-program-id
+            - name: ACCOMPLISH_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: as-secrets
+                  key: accomplish-api-key
+            - name: ACCOMPLISH_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: as-secrets
+                  key: accomplish-encryption-key
+            - name: AUTH_CLIENT_IP_CHECK
+              value: "WEB"
+            - name: NO_COLOR
+              value: "true"
+            - name: CLIENT
+              value: "TRANSFAST"
+            - name: DEBUG
+              value: "false"

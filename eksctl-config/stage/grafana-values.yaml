@@ -1,0 +1,113 @@
+ingress:
+  enabled: true
+  ingressClassName: "internet-alb-ingress-class"
+  annotations:
+    alb.ingress.kubernetes.io/load-balancer-name: "monitoring-lb"
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
+    # alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/ip-address-type: "ipv4"
+    alb.ingress.kubernetes.io/target-type: "instance"
+    alb.ingress.kubernetes.io/target-node-labels: "alpha.eksctl.io/cluster-name=transfast-stage"
+    alb.ingress.kubernetes.io/backend-protocol: "HTTP"
+    alb.ingress.kubernetes.io/backend-protocol-version: "HTTP1"
+    alb.ingress.kubernetes.io/actions.ssl-redirect: '{"Type": "redirect", "RedirectConfig": { "Protocol": "HTTPS", "Port": "443", "StatusCode": "HTTP_301"}}'
+    alb.ingress.kubernetes.io/scheme: "internet-facing"
+    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:eu-west-1:309602515679:certificate/6fee9e05-60e9-4f60-a0aa-11da98db1690"
+    alb.ingress.kubernetes.io/ssl-policy: "ELBSecurityPolicy-FS-1-2-Res-2020-10"
+    alb.ingress.kubernetes.io/load-balancer-attributes: "routing.http2.enabled=false,routing.http.drop_invalid_header_fields.enabled=true,routing.http.xff_client_port.enabled=true" # enable https, ...
+    alb.ingress.kubernetes.io/group.name: grafana
+    external-dns.alpha.kubernetes.io/hostname: "monitoring.transfast.stage.pannovate.net"
+    # kubernetes.io/ingress.class: "alb"  # DEPRECATED
+  # hosts: ["monitoring.transfast.stage.pannovate.net"]
+  # extraPaths:
+  #   - path: /
+  #     pathType: Prefix
+  #     backend:
+  #       service:
+  #         name: ssl-redirect
+  #         port:
+  #           name: use-annotation
+  # - path: /
+  #   pathType: Prefix
+  #   backend:
+  #     service:
+  #       name: grafana
+  #       port:
+  #         name: grafana-service
+
+service:
+  # type: "LoadBalancer"
+  type: NodePort
+  annotations:
+    # service.beta.kubernetes.io/aws-load-balancer-name: "monitoring-lb"
+    # service.beta.kubernetes.io/aws-load-balancer-type: "external"
+    # service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "instance"
+    # service.beta.kubernetes.io/aws-load-balancer-alpn-policy: "HTTP2Preferred"
+    # service.beta.kubernetes.io/aws-load-balancer-target-node-labels: "alpha.eksctl.io/cluster-name=transfast-stage"
+    # service.beta.kubernetes.io/aws-load-balancer-ip-address-type: "ipv4"
+    # service.beta.kubernetes.io/aws-load-balancer-target-group-attributes: "proxy_protocol_v2.enabled=true,stickiness.enabled=true,stickiness.type=source_ip,deregistration_delay.connection_termination.enabled=true,preserve_client_ip.enabled=true"
+    # service.beta.kubernetes.io/aws-load-balancer-ssl-cert: "arn:aws:acm:eu-west-1:309602515679:certificate/6fee9e05-60e9-4f60-a0aa-11da98db1690"
+    # service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "443"
+    # service.beta.kubernetes.io/aws-load-balancer-ssl-negotiation-policy: "ELBSecurityPolicy-TLS13-1-3-2021-06"
+    # service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "tcp"
+    # service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+  portName: grafana-service
+  port: 443
+  targetPort: 3000
+
+env:
+  GF_SMTP_ENABLED: "true"
+  GF_SMTP_HOST: "email-smtp.eu-west-1.amazonaws.com:587"
+  GF_SMTP_PASSWORD: "BC3tabwpTuHZJqbz1iWkZeeLmhYdkuSs6SwUXKS/mjao" # aws dev-testing account ses user pass
+  GF_SMTP_USER: "AKIA246437JUCB6MEMGA" # aws dev-testing account ses user
+  GF_SMTP_FROM_ADDRESS: "transfast-grafana-stage@notifications.pannovate.net"
+  GF_SMTP_FROM_NAME: "TransFast Grafana Stage"
+
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        version: 1
+        url: http://prometheus-server:80
+        access: proxy
+      - name: Loki
+        type: loki
+        version: 1
+        url: http://loki:3100
+        access: proxy
+
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+      - name: "default"
+        orgId: 1
+        folder: ""
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/default
+
+dashboards:
+  default:
+    pod-dashboard:
+      url: https://karpenter.sh/v0.9.0/getting-started/getting-started-with-eksctl/karpenter-pod-metrics.json
+      # gnetId: 16236
+      # revision: 1
+      # datasource: Prometheus
+    node-dashboard:
+      url: https://karpenter.sh/v0.9.0/getting-started/getting-started-with-eksctl/karpenter-node-metrics.json
+      # gnetId: 16237
+      # revision: 1
+      # datasource: Prometheus
+    kubernetes:
+      gnetId: 10000
+      revision: 1
+      datasource: Prometheus
+    logs:
+      gnetId: 13639
+      revision: 2
+      datasource: Loki

@@ -1,0 +1,43 @@
+---
+# Build a local SSH configuration. Specifically, we create a file ~/.ssh/<client>_<env>
+# which we include into ~/.ssh/config. In this file, we add one entry for each host
+
+- name: Cleanup SSH config file
+  shell: "echo > ~/.ssh/config_{{ item[0] }}"
+  loop: "{{ hostvars.items() }}"
+  # loop_control:
+  #   label: "{{ item[0] }}"
+  # For each host, we also add an entry to .ssh/{{ hostvars.items.name }}
+
+- name: Add host to SSH config file
+  shell: |
+    cat >> ~/.ssh/config_{{ item[0] }} <<EOF
+    Host {{ item[1].ansible_ssh_host }}
+        # HostName "{{ item[0] }}"
+        User "{{ item[1].ansible_ssh_user }}"
+        IdentityFile "{{ item[1].ansible_ssh_private_key_file }}"
+        CheckHostIP "no"
+        Compression "yes"
+        # ForwardX11 "yes"
+        StrictHostKeyChecking "no"
+    Host {{ item[1].ansible_ssh_host }}
+        # HostName "{{ item[0] }}"
+        User "{{ item[1].non_root_user }}"
+        IdentityFile "{{ item[1].ansible_ssh_private_key_file }}"
+        CheckHostIP "no"
+        Compression "yes"
+        # ForwardX11 "yes"
+        StrictHostKeyChecking "no"
+    EOF
+  loop: "{{ hostvars.items() }}"
+  loop_control:
+    label: "{{ item[0] }}"
+
+- name: Include our file in main config file
+  lineinfile:
+    create: yes
+    path: ~/.ssh/config
+    insertbefore: BOF
+    line: "Include ~/.ssh/config_{{ item[0] }}\n"
+    state: present
+  loop: "{{ hostvars.items() }}"

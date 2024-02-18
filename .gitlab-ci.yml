@@ -1,0 +1,84 @@
+default:
+  image: docker:latest
+  tags:
+    - autoscaling-docker
+  #services:
+  #  - docker:dind
+
+before_script:
+  - |
+    apk update && apk --no-cache add binutils curl wget git jq && apk del libc6-compat && \
+      # GLIBC_VER=$(curl -s https://api.github.com/repos/sgerrand/alpine-pkg-glibc/releases/latest | jq -r .tag_name) && \
+      GLIBC_VER=2.34-r0 && \
+      curl -sL https://alpine-pkgs.sgerrand.com/sgerrand.rsa.pub -o /etc/apk/keys/sgerrand.rsa.pub && \
+      curl -sLO https://github.com/sgerrand/alpine-pkg-glibc/releases/download/${GLIBC_VER}/glibc-${GLIBC_VER}.apk && \
+      curl -sLO https://github.com/sgerrand/alpine-pkg-glibc/releases/download/${GLIBC_VER}/glibc-bin-${GLIBC_VER}.apk && \
+      curl -sLO https://github.com/sgerrand/alpine-pkg-glibc/releases/download/${GLIBC_VER}/glibc-i18n-${GLIBC_VER}.apk && \
+      apk add --no-cache --force-overwrite glibc-${GLIBC_VER}.apk glibc-bin-${GLIBC_VER}.apk glibc-i18n-${GLIBC_VER}.apk && \
+      /usr/glibc-compat/bin/localedef -i en_US -f UTF-8 en_US.UTF-8 && \
+      curl -sL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o awscliv2.zip && \
+      unzip awscliv2.zip > /dev/null && aws/install && ln -s $(which awscliv2) /usr/bin/aws
+  - if [ -d build ]; then rm -rf build; fi
+  - git clone https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.pannovate.net/syllo/syllo.git build && cd build || exit
+  # We should check it the tag exists and exit if errors
+  - |
+    if [ "$DEPLOY_TO_AWS_STAGE" = "true" ]; then
+      AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID_STAGE"
+      AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY_STAGE"
+      AWS_DEFAULT_REGION="$AWS_DEFAULT_REGION_STAGE"
+      AWS_ECR_URL="$AWS_ECR_URL_STAGE"
+    fi
+    if [ "$CI_COMMIT_BRANCH" = "stage" ]; then
+      git checkout "$CI_COMMIT_BRANCH"
+      # If we want to build from the stage branch then update the varable with the actial version from the lerna.json file
+      # so we can check for NPM packages, ECR images, and deployments
+      VERSION=$(jq -r '.version' lerna.json)
+    else
+      git checkout "v$VERSION"
+    fi
+
+  - cp -R ../deployment/. .
+
+  - echo "Updating authentications for NPM Package Registry..."
+  - echo "@syllo:registry=https://gitlab.pannovate.net/api/v4/packages/npm/" > .npmrc
+  - echo "//gitlab.pannovate.net/api/v4/packages/npm/:_authToken=${NPM_REGISTRY_TOKEN}" >> .npmrc
+  - curl -s https://gitlab.pannovate.net/api/v4/groups/67/projects?access_token=${NPM_REGISTRY_TOKEN} | jq -c '.[].id' | while read id; do echo "//gitlab.pannovate.net/api/v4/projects/$id/packages/npm/:_authToken=${NPM_REGISTRY_TOKEN}"; done >> .npmrc || true
+  - curl -s https://gitlab.pannovate.net/api/v4/groups/67/subgroups?access_token=${NPM_REGISTRY_TOKEN} | jq -c '.[].id' | while read gid; do curl -s https://gitlab.pannovate.net/api/v4/groups/$gid/projects?access_token=${NPM_REGISTRY_TOKEN} | jq -c '.[].id' | while read id; do echo "//gitlab.pannovate.net/api/v4/projects/$id/packages/npm/:_authToken=${NPM_REGISTRY_TOKEN}"; done; done >> .npmrc || true
+
+  - echo "Logging in to GitLab Container Registry with CI credentials..."
+  - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+
+  - echo "Logging in to ECR Container Registry with CI credentials..."
+  - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ECR_URL
+
+  # Install GRYPE - A vulnerability scanner for container images and filesystems
+  - curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/bin
+
+variables:
+  CI_DEBUG_TRACE: $DEBUG_CI_JOBS
+
+include:
+  - local: "/.devops/00_prereq.yaml" # build and publish protobuf and connector
+  - local: "/.devops/05_plugins.yaml" # build and publish plugins npm packages to add later in the build
+  - local: "/.devops/10_docker-build.yaml" # docker-build stage
+  - local: "/.devops/30_tests.yaml" # test stage
+  - local: "/.devops/50-postnpm-builds.yml" # Build docker images that need npm packages
+  - local: "/.devops/60_build-images.yaml" # build-images and tag them stage
+  - local: "/.devops/80_cleanup.yaml" # remove temporary docker images
+  - local: "/.devops/90_deployments.yaml" # deploy stage
+
+stages:
+  - prepare # Prepares dev build and npm-publish-protobuf for prod
+  #- npm-publish-protobuf
+  - npm-publish-connector # for prod
+  - npm-publish-plugins # for prod
+  - docker-build # for prod
+  - sast # for dev
+  - test # for dev, prod
+  - postnpm-docker-build # for prod
+  - postnpm-test # for prod
+  - build-images # for prod
+  - publish-images # for prod
+  - hygiene # for prod
+  - deploy # for dev, stage, qa
+  - verify # for dev

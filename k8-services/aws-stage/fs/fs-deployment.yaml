@@ -1,0 +1,122 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tfs-fs-deployment
+  labels:
+    app: fs
+  namespace: tfs-fs
+  annotations:
+    linkerd.io/inject: enabled
+spec:
+  selector:
+    matchLabels:
+      app: fs
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: fs
+    spec:
+      volumes:
+        - name: tfs-ssh-keys
+          secret:
+            secretName: fs-secret-keys
+      containers:
+        - name: syllo-fs
+          image: 309602515679.dkr.ecr.eu-west-1.amazonaws.com/syllo-fs:1.8.3
+          resources:
+            limits:
+              memory: 400Mi
+              cpu: "0.2"
+            requests:
+              memory: 200Mi
+              cpu: "0.1"
+          ports:
+            - containerPort: 10007
+          volumeMounts:
+            - name: tfs-ssh-keys
+              readOnly: true
+              mountPath: "/home/node/.ssh"
+          env:
+            - name: npm_package_version
+              value: "1.8.3"
+            - name: ENVIRONMENT
+              value: "production"
+            - name: AS_URL
+              value: "172.20.49.111:10004"
+            - name: CS_URL
+              value: "172.20.122.80:10003"
+            - name: GRPC_SERVER_URL
+              value: "0.0.0.0:10007"
+            - name: CONFIG_URL
+              value: "172.20.176.186:10008"
+            - name: MQ_URL
+              valueFrom:
+                secretKeyRef:
+                  name: fs-secrets
+                  key: mq-url
+            - name: FS_AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: fs-secrets
+                  key: aws-access-key
+            - name: FS_AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: fs-secrets
+                  key: aws-secret-key
+            - name: FS_AWS_REGION
+              value: "eu-west-1"
+            - name: FS_AWS_S3_BUCKET
+              value: "s3-bucket-transfast-syllo-uploads"
+            - name: FS_AWS_ACCESS_SIGNIN_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: fs-secrets
+                  key: aws-signin-key
+            - name: FS_AWS_SECRET_ACCESS_SIGNIN_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: fs-secrets
+                  key: aws-signin-secret
+            - name: S3_DOWNLOAD_DIR
+              value: "downloads/reports"
+            - name: ELS_URL
+              value: "172.20.185.160:10006"
+            - name: DB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: fs-secrets
+                  key: mongo-uri
+            - name: DEBUG
+              value: "false"
+            - name: SFTP_HOST
+              value: "localhost"
+            - name: SFTP_PORT
+              value: "22"
+            - name: SFTP_USER
+              value: "pannovate"
+            - name: SFTP_PASSWORD
+              value: "pann11."
+            - name: SFTP_DIR
+              value: "null"
+            - name: S3_UPLOAD_DIR
+              value: "uploads"
+            - name: PUBSUB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: fs-secrets
+                  key: redis-url
+            - name: MAIL_SEND_FROM_NAME
+              value: "transfast-staging"
+            - name: MAIL_SEND_FROM
+              value: "transfast@notifications.pannovate.net"
+            - name: NO_COLOR
+              value: "true"
+            - name: CLIENT
+              value: "TRANSFAST"

@@ -1,0 +1,137 @@
+---
+# This role will update system and apps
+- name: Update packages list
+  apt: update_cache=yes
+  when: ansible_os_family == 'Debian'
+
+# - name: List packages to upgrade (1/2)
+#   shell: aptitude -q -F%p --disable-columns search "~U"
+#   register: updates
+#   changed_when: False
+#   when: ansible_os_family == 'Debian'
+
+# - name: List packages to upgrade (2/2)
+#   debug: msg="{{ updates.stdout_lines | count }} packages to upgrade ({{ updates.stdout_lines | join(', ') }})"
+#   when: (ansible_os_family == 'Debian' and updates.stdout_lines)
+
+- name: Upgrade packages
+  apt: upgrade=safe
+  when: ansible_os_family == 'Debian'
+
+- name: Check what the new version is
+  shell: lsb_release -r | awk '{print $2}'
+  changed_when: False
+  register: new_release
+
+- name: Notify distribution version upgrade
+  debug: msg="Debian has been upgraded from {{ ansible_lsb.release }} to {{ new_release.stdout }}"
+  when: ansible_lsb.release != new_release.stdout
+
+- name: List services to restart (1/2)
+  shell: checkrestart | grep ^service | awk '{print $2}'
+  register: services
+  changed_when: False
+  when: ansible_os_family == 'Debian'
+
+- name: List services to restart (2/2)
+  debug: msg="{{ services.stdout_lines | count }} services to restart ({{ services.stdout_lines | join (', ') }})"
+  when: (ansible_os_family == 'Debian' and services.stdout_lines)
+
+- name: Install build-essential and basic packages
+  apt:
+    state: latest
+    name: "{{ item }}"
+    force_apt_get: yes
+    update_cache: yes
+  loop:
+    - build-essential
+    - curl
+    - wget
+    - git
+    - software-properties-common
+    - rsync
+    - gnupg2
+    - ca-certificates
+    - lsb-release
+    - apt-transport-https
+    - gcc
+    - g++
+    - make
+    - jq
+    #- yq
+    - vim
+
+- name: Install Nginx
+  apt:
+    force_apt_get: yes
+    state: latest
+    update_cache: yes
+    name: nginx
+
+- name: start nginx
+  service:
+    name: nginx
+    state: started
+
+- name: Let's Encrypt
+  apt:
+    state: latest
+    name: "{{ item }}"
+    force_apt_get: yes
+    update_cache: yes
+  loop:
+    - python3-acme
+    - python3-certbot
+    - python3-mock
+    - python3-openssl
+    - python3-pkg-resources
+    - python3-pyparsing
+    - python3-zope.interface
+    - python3-certbot-nginx
+
+- name: Install the gpg key for nodejs LTS
+  shell: |
+    curl -sL https://deb.nodesource.com/setup_lts.x | sudo bash - && apt-get install -y nodejs
+
+- name: install Yarn package manager
+  shell: |
+    curl -sL https://dl.yarnpkg.com/debian/pubkey.gpg | gpg --dearmor | sudo tee /usr/share/keyrings/yarnkey.gpg >/dev/null
+    echo "deb [signed-by=/usr/share/keyrings/yarnkey.gpg] https://dl.yarnpkg.com/debian stable main" | sudo tee /etc/apt/sources.list.d/yarn.list
+    apt-get update && apt-get install -y yarn
+
+- name: install PM2 globally
+  npm:
+    name: pm2
+    global: yes
+
+- name: Install Docker
+  shell: |
+    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+    echo \
+      "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian \
+      $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+    apt-get update
+    apt-get install docker-ce docker-ce-cli containerd.io
+    #sudo usermod -aG docker user_name # add current user_name to docker group to be able to run docker withot sudo
+    usermod -aG docker syllo
+
+- name: Install Docker-compose
+  shell: |
+    curl -sL "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+    chmod +x /usr/local/bin/docker-compose
+    # Install compose completion
+    curl \
+      -L https://raw.githubusercontent.com/docker/compose/1.29.2/contrib/completion/bash/docker-compose \
+      -o /etc/bash_completion.d/docker-compose
+
+- name: Install ProtoBuf Compiler
+  apt:
+    state: latest
+    name: "protobuf-compiler"
+    force_apt_get: yes
+    update_cache: yes
+
+- name: Install Lerna Globally
+  npm:
+    name: lerna
+    global: yes

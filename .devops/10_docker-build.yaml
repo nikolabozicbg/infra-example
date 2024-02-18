@@ -1,0 +1,164 @@
+#
+#
+# THESE JOBS CAN BE RUN IN PARALLEL
+#
+as-docker-build:
+  extends: .prereqs
+  stage: docker-build
+  needs: ["plugins-npm-publish"]
+  script:
+    - cd ./packages/as
+    - |
+      if [ -n "$PLUGINS" ]; then
+        # Use ALL plugins, until we find a better solution
+        # for PLUGIN in ../plugins/*; do
+        # This is a better solution
+        for PLUGIN in $(echo $PLUGINS | sed "s/,/ /g"); do
+          PLUGIN=$(basename $PLUGIN)
+          LOCALVER=$(jq -r '.version' ../plugins/"$PLUGIN"/package.json)
+          tmp=$(mktemp)
+          jq ".dependencies += {\"@syllo/$PLUGIN\":\"$LOCALVER\"}" package.json > "$tmp" && mv "$tmp" package.json
+        done
+      fi
+    # HAS NPM PUBLISH
+    - docker build -t $CI_REGISTRY/$DOCKER_REGISTRY/syllo-as:deploy -f ./deploy.Dockerfile --build-arg NPM_TOKEN="$NPM_REGISTRY_TOKEN" .
+    - grype $CI_REGISTRY/$DOCKER_REGISTRY/syllo-as:deploy
+    - docker push $CI_REGISTRY/$DOCKER_REGISTRY/syllo-as:deploy
+
+config-docker-build:
+  extends: .prereqs
+  stage: docker-build
+  needs: ["plugins-npm-publish"]
+  script:
+    - cd ./packages/config
+    - |
+      if [ -n "$PLUGINS" ]; then
+        # Use ALL plugins, until we find a better solution
+        # for PLUGIN in ../plugins/*; do
+        # This is a better solution
+        for PLUGIN in $(echo $PLUGINS | sed "s/,/ /g"); do
+          PLUGIN=$(basename $PLUGIN)
+          LOCALVER=$(jq -r '.version' ../plugins/"$PLUGIN"/package.json)
+          tmp=$(mktemp)
+          jq ".dependencies += {\"@syllo/$PLUGIN\":\"$LOCALVER\"}" package.json > "$tmp" && mv "$tmp" package.json
+        done
+      fi
+    # HAS NPM PUBLISH
+    - docker build -t $CI_REGISTRY/$DOCKER_REGISTRY/syllo-config:deploy -f ./deploy.Dockerfile --build-arg NPM_TOKEN="$NPM_REGISTRY_TOKEN" .
+    - grype $CI_REGISTRY/$DOCKER_REGISTRY/syllo-config:deploy
+    - docker push $CI_REGISTRY/$DOCKER_REGISTRY/syllo-config:deploy
+
+cs-docker-build:
+  extends: .prereqs
+  stage: docker-build
+  needs: ["plugins-npm-publish"]
+  script:
+    - cd ./packages/cs
+    - |
+      if [ -n "$PLUGINS" ]; then
+        # Use ALL plugins, until we find a better solution
+        # for PLUGIN in ../plugins/*; do
+        # This is a better solution
+        for PLUGIN in $(echo $PLUGINS | sed "s/,/ /g"); do
+          PLUGIN=$(basename $PLUGIN)
+          LOCALVER=$(jq -r '.version' ../plugins/"$PLUGIN"/package.json)
+          tmp=$(mktemp)
+          jq ".dependencies += {\"@syllo/$PLUGIN\":\"$LOCALVER\"}" package.json > "$tmp" && mv "$tmp" package.json
+        done
+      fi
+    # HAS NPM PUBLISH
+    - docker build -t $CI_REGISTRY/$DOCKER_REGISTRY/syllo-cs:deploy -f ./deploy.Dockerfile --build-arg NPM_TOKEN="$NPM_REGISTRY_TOKEN" .
+    - grype $CI_REGISTRY/$DOCKER_REGISTRY/syllo-cs:deploy
+    - docker push $CI_REGISTRY/$DOCKER_REGISTRY/syllo-cs:deploy
+
+els-docker-build:
+  extends: .prereqs
+  stage: docker-build
+  needs: ["plugins-npm-publish"]
+  script:
+    - cd ./packages/els
+    - |
+      if [ -n "$PLUGINS" ]; then
+        # Use ALL plugins, until we find a better solution
+        # for PLUGIN in ../plugins/*; do
+        # This is a better solution
+        for PLUGIN in $(echo $PLUGINS | sed "s/,/ /g"); do
+          PLUGIN=$(basename $PLUGIN)
+          LOCALVER=$(jq -r '.version' ../plugins/"$PLUGIN"/package.json)
+          tmp=$(mktemp)
+          jq ".dependencies += {\"@syllo/$PLUGIN\":\"$LOCALVER\"}" package.json > "$tmp" && mv "$tmp" package.json
+        done
+      fi
+    # HAS NPM PUBLISH
+    - docker build -t $CI_REGISTRY/$DOCKER_REGISTRY/syllo-els:deploy -f ./deploy.Dockerfile --build-arg NPM_TOKEN="$NPM_REGISTRY_TOKEN" .
+    - grype $CI_REGISTRY/$DOCKER_REGISTRY/syllo-els:deploy
+    - docker push $CI_REGISTRY/$DOCKER_REGISTRY/syllo-els:deploy
+
+kyc-docker-build:
+  extends: .prereqs
+  stage: docker-build
+  needs: ["plugins-npm-publish"]
+  script:
+    - cd ./packages/kyc
+    - |
+      if [ -n "$PLUGINS" ]; then
+        # Use ALL plugins, until we find a better solution
+        # for PLUGIN in ../plugins/*; do
+        # This is a better solution
+        for PLUGIN in $(echo $PLUGINS | sed "s/,/ /g"); do
+          PLUGIN=$(basename $PLUGIN)
+          LOCALVER=$(jq -r '.version' ../plugins/"$PLUGIN"/package.json)
+          tmp=$(mktemp)
+          jq ".dependencies += {\"@syllo/$PLUGIN\":\"$LOCALVER\"}" package.json > "$tmp" && mv "$tmp" package.json
+        done
+      fi
+    # HAS NPM PUBLISH
+    - docker build -t $CI_REGISTRY/$DOCKER_REGISTRY/syllo-kyc:deploy -f ./deploy.Dockerfile --build-arg NPM_TOKEN="$NPM_REGISTRY_TOKEN" .
+    - grype $CI_REGISTRY/$DOCKER_REGISTRY/syllo-kyc:deploy
+    - docker push $CI_REGISTRY/$DOCKER_REGISTRY/syllo-kyc:deploy
+
+mps-docker-build:
+  extends: .prereqs
+  stage: docker-build
+  needs: ["plugins-npm-publish"]
+  script:
+    - cd ./packages/mps
+    - |
+      if [ -n "$PLUGINS" ]; then
+        # Use ALL plugins, until we find a better solution
+        # for PLUGIN in ../plugins/*; do
+        # This is a better solution
+        for PLUGIN in $(echo $PLUGINS | sed "s/,/ /g"); do
+          PLUGIN=$(basename $PLUGIN)
+          LOCALVER=$(jq -r '.version' ../plugins/"$PLUGIN"/package.json)
+          tmp=$(mktemp)
+          jq ".dependencies += {\"@syllo/$PLUGIN\":\"$LOCALVER\"}" package.json > "$tmp" && mv "$tmp" package.json
+        done
+      fi
+    # HAS NPM PUBLISH
+    - docker build -t $CI_REGISTRY/$DOCKER_REGISTRY/syllo-mps:deploy -f ./deploy.Dockerfile --build-arg NPM_TOKEN="$NPM_REGISTRY_TOKEN" .
+    - grype $CI_REGISTRY/$DOCKER_REGISTRY/syllo-mps:deploy
+    - docker push $CI_REGISTRY/$DOCKER_REGISTRY/syllo-mps:deploy
+
+webhook-docker-build:
+  extends: .prereqs
+  stage: docker-build
+  needs: ["plugins-npm-publish"]
+  script:
+    - cd ./packages/webhook
+    - |
+      if [ -n "$PLUGINS" ]; then
+        # Use ALL plugins, until we find a better solution
+        # for PLUGIN in ../plugins/*; do
+        # This is a better solution
+        for PLUGIN in $(echo $PLUGINS | sed "s/,/ /g"); do
+          PLUGIN=$(basename $PLUGIN)
+          LOCALVER=$(jq -r '.version' ../plugins/"$PLUGIN"/package.json)
+          tmp=$(mktemp)
+          jq ".dependencies += {\"@syllo/$PLUGIN\":\"$LOCALVER\"}" package.json > "$tmp" && mv "$tmp" package.json
+        done
+      fi
+    # HAS NPM PUBLISH
+    - docker build -t $CI_REGISTRY/$DOCKER_REGISTRY/syllo-webhook:deploy -f ./deploy.Dockerfile --build-arg NPM_TOKEN="$NPM_REGISTRY_TOKEN" .
+    - grype $CI_REGISTRY/$DOCKER_REGISTRY/syllo-webhook:deploy
+    - docker push $CI_REGISTRY/$DOCKER_REGISTRY/syllo-webhook:deploy

@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: tfs-ps-service
+  namespace: tfs-ps
+  labels:
+    app.kubernetes.io/name: ps
+    app: ps
+spec:
+  selector:
+    app: ps
+  ports:
+    - name: ps-port
+      protocol: TCP
+      port: 10014
+      targetPort: 10014

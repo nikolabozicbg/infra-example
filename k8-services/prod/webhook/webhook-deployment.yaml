@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tfs-webhook-deployment
+  labels:
+    app.kubernetes.io/name: webhook
+    app: webhook
+    client: transfast
+  namespace: tfs-webhook
+  annotations:
+    linkerd.io/inject: enabled
+spec:
+  selector:
+    matchLabels:
+      app: webhook
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: webhook
+    spec:
+      containers:
+        - name: syllo-webhook
+          image: 458838185766.dkr.ecr.eu-west-1.amazonaws.com/syllo-webhook:1.9.2
+          imagePullPolicy: Always
+          resources:
+            limits:
+              memory: 400Mi
+              cpu: "0.4"
+            requests:
+              memory: 200Mi
+              cpu: "0.2"
+          ports:
+            - containerPort: 10010
+              name: webhk-grpc-port
+          env:
+            - name: npm_package_version
+              value: "1.9.2"
+            - name: ENVIRONMENT
+              value: "production"
+            - name: AS_URL
+              value: "172.20.251.247:10004"
+            - name: CS_URL
+              value: "172.20.34.44:10003"
+            - name: MPS_URL
+              value: "172.20.254.12:10005"
+            - name: ELS_URL
+              value: "172.20.135.187:10006"
+            - name: KYC_URL
+              value: "172.20.9.88:10002"
+            - name: GRPC_HOST
+              value: "0.0.0.0:10010"
+            - name: DB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: webhook-secrets
+                  key: mongo-uri
+            - name: MQ_URL
+              valueFrom:
+                secretKeyRef:
+                  name: webhook-secrets
+                  key: mq-url
+            - name: PUBSUB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: webhook-secrets
+                  key: redis-url
+            - name: ACCOMPLISH_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: webhook-secrets
+                  key: accomplish-api-key
+            - name: ACCOMPLISH_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: webhook-secrets
+                  key: accomplish-encryption-key
+            - name: NO_COLOR
+              value: "true"
+            - name: CLIENT
+              value: "TRANSFAST"
+            - name: GPS_EHI_MODE
+              value: "1"
+            - name: SYLLO_LOG_LEVEL
+              value: "5"
+            - name: MONGO_PREVENT_AUTO_INDEX
+              value: "true"
+            - name: DEBUG
+              value: "false"

@@ -1,0 +1,52 @@
+---
+# The Provisioning Play. This play will run Terraform via the Terraform module
+# and build a dynamic inventory from its output
+- name: Run Terraform and build inventory dynamically
+  hosts: localhost
+  roles:
+    - terraform
+
+# Next, we build a local SSH configuration. This is not necessarily needed, but
+# makes it easy to SSH into the machines using their logical name
+- name: Build SSH configuration
+  hosts: localhost
+  roles:
+    - localSshConfig
+
+# This play is only there to make sure that all machines are available before
+# we proceed
+- name: Wait for all machines to become ready
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: Wait for machine to become reachable
+      wait_for_connection:
+        delay: 10
+        sleep: 10
+
+# We are now ready to perform the actual installation steps.
+# First, there is a play for those installation steps common
+# to all groups
+- name: Setup default user on all servers
+  hosts: all
+  become: yes
+  roles:
+    - defaultUser
+
+- name: Configure SSH, Swap and system parameters
+  hosts: all
+  become: yes
+  roles:
+    - sshConfig
+    - swapFile
+    - systemApps
+    - GitLabConfig
+  handlers:
+    - name: restart sshd
+      service: name=sshd state=restarted
+
+- name: Clone and build Syllo Back End
+  hosts: all
+  become: yes
+  roles:
+    # - sylloDeployment

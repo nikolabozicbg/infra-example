@@ -1,0 +1,88 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: parma-prod2
+  region: eu-west-1
+  version: "1.20"
+
+# Map existing vpc network with vpc:subnets - at least 2x public and/or 2x private subnets are required
+# eksctl provides some, but not complete, flexibility for custom VPC and subnet topologies.
+# eksctl will NOT CREATE any routing tables or other resources, such as internet/NAT gateways. It will,
+# however, create dedicated security groups for the initial nodegroup and the control plane.
+# Standard requirements:
+#     * VPC must have DNS hostname and DNS resolution support. Otherwise, worker nodes cannot register with the cluster
+#     * all given subnets must be in the same VPC, within the same block of IPs
+#     * a sufficient number IP addresses are available, based on needs
+#     * sufficient number of subnets (minimum 2), based on needs
+#     * subnets are tagged with at least the following:
+#         * kubernetes.io/cluster/<name> tag set to either shared or owned and <name> repaced with cluster name
+#         * kubernetes.io/role/internal-elb tag set to 1 for private subnets
+#           OR kubernetes.io/role/elb tag set to 1 for public subnets
+#         * Private subnets shoutd have NAT GW in Public subnet
+#     * routing tables have correct entries and the network is functional
+#     * all public subnets should have the property MapPublicIpOnLaunch enabled (i.e. Auto-assign public IPv4 address in the AWS console)
+#     * A subnet is public or private depending on whether or not traffic within the subnet is routed through an internet gateway. If the subnet’s traffic does not have a default route through an internet gateway, this subnet is considered to be private.
+
+# FOR ACCESS BANK, USED TAGS:
+# alpha.eksctl.io/cluster-name = ab-prod
+# kubernetes.io/cluster/ab-prod = shared
+# kubernetes.io/role/internal-elb = 1
+# kubernetes.io/ab-prod = shared
+# eksctl.cluster.k8s.io/v1alpha1/cluster-name = ab-prod
+
+vpc:
+  id: vpc-0c0c9a6199bf4a182 # eksctl-parma-prod-cluster/VPC (CIDR 10.10.0.0/16; 10.1.0.0/16)
+  cidr: 10.1.0.0/16 # Second CIDR in VPC
+  subnets:
+    private:
+      parma-prod2-cluster_PrivateEUWEST1A`:
+        id: subnet-0562ec5dca81e7249
+      parma-prod2-cluster_PrivateEUWEST1B`:
+        id: subnet-06750702c94ab851c
+      parma-prod2-cluster_PrivateEUWEST1C`:
+        id: subnet-0d8e6c9450c0b00b9
+    public:
+      parma-prod2-cluster_PublicEUWEST1A:
+        id: subnet-04fccbb675adf1d4e
+      parma-prod2-cluster_PublicEUWEST1B:
+        id: subnet-09218365b13fe102e
+      parma-prod2-cluster_PublicEUWEST1C:
+        id: subnet-0102b9723f4e7294a
+  clusterEndpoints:
+    publicAccess: true
+    privateAccess: true
+  publicAccessCIDRs: ["91.143.218.42/32", "88.99.219.54/32"] # VPN & Alpha
+
+secretsEncryption:
+  keyARN: "arn:aws:kms:eu-west-1:019352175180:key/444a079c-c9d2-4a6a-9361-a79036be3a5a"
+
+cloudWatch:
+  clusterLogging:
+    enableTypes: ["all"]
+
+# VPC:subnets and availability zones cannot be sat at the same time
+#availabilityZones: ["eu-west-1a", "eu-west-1b", "eu-west-1c"]
+
+managedNodeGroups:
+  - name: parma2-managed-ng-v3
+    labels: { nodegroup: parma2-managed-ng-v3 }
+    instanceType: t3a.medium # TODO: Questionable instance size
+    minSize: 1
+    maxSize: 10
+    desiredCapacity: 3
+    volumeSize: 40
+    privateNetworking: true
+    ssh:
+      allow: true
+      publicKey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCuwxmKcJFDRgxnCN165c/Ef1sLr6P0Qe6NzcZGnDLLYQDZkAt9AjlRK/S6ZLGdQZ1LwSxTCpVbKFjJVdznCrWwlfT9qDWDidpxqE5yDkM/shb45ycgIBh9DjaH8kVoZ5Jvm0ru053WCH6gqcRcvQ/sCfC9dXS974aqVJWd8ETEhfWUTjdcXO/Y5Iuqg1oIKIpZeOHceFYVdJ4kXMnybPHW/KLOe4LhvaEhCnEZ3/K68I+h9XYFSH43t0QpWuT6YkAaiRCCh6hU8jMPezcT0FkaFIWdrsJyei0FCsXnv9QowNgvFfSOBuF6pl6wppnaBeazFhYmNeE7J8eUFw2g5UUcGb8KxYkbX+KUe7U+4H/RbJE9YSLLAyuH2PF3Rgx72htOYWIU6GqPxaP25cs/OUS6NXDJZKx6PRyi10LEdvMZu2dGd2pHWZd6KtvIanvufXZZDgJfQx4ZcIvMPsTSUE0z98mElqqXWy//WUNx2Px5qBy2SQJzULj1NICC5W7072U= dusanm@dusanm-probook450"
+      publicKeyName: "aws_cluster_key"
+      # new feature for restricting SSH access to certain AWS security group IDs
+      # sourceSecurityGroupIds: ["sg-123"]
+    #securityGroups:
+    #attachIDs: ["sg-0123", "sg-234", ...]
+    #attachIDs: ["sg-0b24c35e0d9a03343"]
+    iam:
+      withAddonPolicies:
+        autoScaler: true
+        albIngress: true

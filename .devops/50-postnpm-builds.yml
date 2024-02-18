@@ -1,0 +1,152 @@
+#
+#
+# THESE JOBS CAN BE RUN IN PARALLEL
+#
+apigw-docker-build:
+  extends: .prereqs
+  # Needs NPM Packages to build so it should be moved down the pipeline, after NPM packages are published
+  stage: postnpm-docker-build
+  needs: &postnpm-needs
+    - "as-test"
+    - "config-test"
+    - "cs-test"
+    - "els-test"
+    - "kyc-test"
+    - "mps-test"
+    - "webhook-test"
+  script:
+    - cd ./packages/api-gateway
+    # IMPLEMENT SOME METHOD (EX: USING ARTIFACTS) TO THANSMIT INFO TO NEXT STAGE
+    # WE SHOULD COMPARE TO ECR ON BUILD ANYHOW
+    # AND NOT COMPLICATED CHECKS IN EACH STAGE
+    - |
+      if [ -n "$PLUGINS" ]; then
+        # Use ALL plugins, until we find a better solution
+        # for PLUGIN in ../plugins/*; do
+        # This is a better solution
+        for PLUGIN in $(echo $PLUGINS | sed "s/,/ /g"); do
+          PLUGIN=$(basename $PLUGIN)
+          LOCALVER=$(jq -r '.version' ../plugins/"$PLUGIN"/package.json)
+          tmp=$(mktemp)
+          jq ".dependencies += {\"@syllo/$PLUGIN\":\"$LOCALVER\"}" package.json > "$tmp" && mv "$tmp" package.json
+        done
+      fi
+    - |
+      if [ -f deploy.Dockerfile ]; then
+        # This file did not exist in the beginning
+        docker build -t $CI_REGISTRY/$DOCKER_REGISTRY/syllo-apigw:deploy -f ./deploy.Dockerfile --build-arg NPM_TOKEN="$NPM_REGISTRY_TOKEN" .
+
+        grype $CI_REGISTRY/$DOCKER_REGISTRY/syllo-apigw:deploy
+
+        docker push $CI_REGISTRY/$DOCKER_REGISTRY/syllo-apigw:deploy
+      fi
+
+apigw-test:
+  extends: .prereqs
+  stage: postnpm-test
+  needs: ["apigw-docker-build"]
+  script:
+    - cd ./packages/api-gateway
+    # IMPLEMENT SOME METHOD (EX: USING ARTIFACTS) TO THANSMIT INFO TO NEXT STAGE
+    # WE SHOULD COMPARE TO ECR ON BUILD ANYHOW
+    # AND NOT COMPLICATED CHECKS IN EACH STAGE
+    - |
+      if [ -f deploy.Dockerfile ]; then
+        # This file did not exist in the beginning
+        docker pull $CI_REGISTRY/$DOCKER_REGISTRY/syllo-apigw:deploy
+
+        # Run more tests with Grype, Snyk, Trivy ...
+
+        docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-apigw:deploy yarn run lint || true
+        docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-apigw:deploy yarn run depcheck || true
+      fi
+
+fs-docker-build:
+  extends: .prereqs
+  stage: postnpm-docker-build
+  needs: *postnpm-needs
+  script:
+    - cd ./packages/fs
+    # IMPLEMENT SOME METHOD (EX: USING ARTIFACTS) TO THANSMIT INFO TO NEXT STAGE
+    # WE SHOULD COMPARE TO ECR ON BUILD ANYHOW
+    # AND NOT COMPLICATED CHECKS IN EACH STAGE
+    - |
+      if [ -n "$PLUGINS" ]; then
+        # Use ALL plugins, until we find a better solution
+        # for PLUGIN in ../plugins/*; do
+        # This is a better solution
+        for PLUGIN in $(echo $PLUGINS | sed "s/,/ /g"); do
+          PLUGIN=$(basename $PLUGIN)
+          LOCALVER=$(jq -r '.version' ../plugins/"$PLUGIN"/package.json)
+          tmp=$(mktemp)
+          jq ".dependencies += {\"@syllo/$PLUGIN\":\"$LOCALVER\"}" package.json > "$tmp" && mv "$tmp" package.json
+        done
+      fi
+    - |
+      docker build -t $CI_REGISTRY/$DOCKER_REGISTRY/syllo-fs:deploy -f ./deploy.Dockerfile --build-arg NPM_TOKEN="$NPM_REGISTRY_TOKEN" .
+
+      grype $CI_REGISTRY/$DOCKER_REGISTRY/syllo-fs:deploy
+
+      docker push $CI_REGISTRY/$DOCKER_REGISTRY/syllo-fs:deploy
+
+fs-test:
+  extends: .prereqs
+  stage: postnpm-test
+  needs: ["fs-docker-build"]
+  script:
+    - cd ./packages/fs
+    # IMPLEMENT SOME METHOD (EX: USING ARTIFACTS) TO THANSMIT INFO TO NEXT STAGE
+    # WE SHOULD COMPARE TO ECR ON BUILD ANYHOW
+    # AND NOT COMPLICATED CHECKS IN EACH STAGE
+    - |
+      docker pull $CI_REGISTRY/$DOCKER_REGISTRY/syllo-fs:deploy
+
+      # Run more tests with Grype, Snyk, Trivy ...
+
+      docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-fs:deploy yarn run lint || true
+      docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-fs:deploy yarn run depcheck || true
+
+pubsub-docker-build:
+  extends: .prereqs
+  stage: postnpm-docker-build
+  needs: *postnpm-needs
+  script:
+    - cd ./packages/pubsub
+    # IMPLEMENT SOME METHOD (EX: USING ARTIFACTS) TO THANSMIT INFO TO NEXT STAGE
+    # WE SHOULD COMPARE TO ECR ON BUILD ANYHOW
+    # AND NOT COMPLICATED CHECKS IN EACH STAGE
+    - |
+      if [ -n "$PLUGINS" ]; then
+        # Use ALL plugins, until we find a better solution
+        # for PLUGIN in ../plugins/*; do
+        # This is a better solution
+        for PLUGIN in $(echo $PLUGINS | sed "s/,/ /g"); do
+          PLUGIN=$(basename $PLUGIN)
+          LOCALVER=$(jq -r '.version' ../plugins/"$PLUGIN"/package.json)
+          tmp=$(mktemp)
+          jq ".dependencies += {\"@syllo/$PLUGIN\":\"$LOCALVER\"}" package.json > "$tmp" && mv "$tmp" package.json
+        done
+      fi
+    - |
+      docker build -t $CI_REGISTRY/$DOCKER_REGISTRY/syllo-pubsub:deploy -f ./deploy.Dockerfile --build-arg NPM_TOKEN="$NPM_REGISTRY_TOKEN" .
+
+      grype $CI_REGISTRY/$DOCKER_REGISTRY/syllo-pubsub:deploy
+
+      docker push $CI_REGISTRY/$DOCKER_REGISTRY/syllo-pubsub:deploy
+
+pubsub-test:
+  extends: .prereqs
+  stage: postnpm-test
+  needs: ["pubsub-docker-build"]
+  script:
+    - cd ./packages/pubsub
+    # IMPLEMENT SOME METHOD (EX: USING ARTIFACTS) TO THANSMIT INFO TO NEXT STAGE
+    # WE SHOULD COMPARE TO ECR ON BUILD ANYHOW
+    # AND NOT COMPLICATED CHECKS IN EACH STAGE
+    - |
+      docker pull $CI_REGISTRY/$DOCKER_REGISTRY/syllo-pubsub:deploy
+
+      # Run more tests with Grype, Snyk, Trivy ...
+
+      docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-pubsub:deploy yarn run lint || true
+      docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-pubsub:deploy yarn run depcheck || true

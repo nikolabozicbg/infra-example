@@ -1,0 +1,513 @@
+########################
+## DEPLOY TO DEVELOPMENT
+########################
+
+.develop-jobs:
+  variables:
+    CI_DEBUG_TRACE: $DEBUG_CI_JOBS # REMOVE THIS AND DELETE THE JOB LOG AFTER INSPECTION
+    GIT_SUBMODULE_STRATEGY: recursive
+    CLIENT: $CLIENT
+    ENVIRONMENT: "development"
+  interruptible: true
+  environment:
+    name: development
+    url: https://transfast.syllo.dev.pannovate.net
+  before_script:
+    - echo "Starting the build and deploy for $ENVIRONMENT environment"
+    - cd $DEPLOY_PATH
+    - echo "Updating authentications for NPM Package Registry..."
+    - echo "@syllo:registry=https://gitlab.pannovate.net/api/v4/packages/npm/" > .npmrc
+    - echo "//gitlab.pannovate.net/api/v4/packages/npm/:_authToken=${NPM_REGISTRY_TOKEN}" >> .npmrc
+    - curl -s https://gitlab.pannovate.net/api/v4/groups/67/projects?access_token=${NPM_REGISTRY_TOKEN} | jq -c '.[].id' | while read id; do echo "//gitlab.pannovate.net/api/v4/projects/$id/packages/npm/:_authToken=${NPM_REGISTRY_TOKEN}"; done >> .npmrc || true
+    - curl -s https://gitlab.pannovate.net/api/v4/groups/67/subgroups?access_token=${NPM_REGISTRY_TOKEN} | jq -c '.[].id' | while read gid; do curl -s https://gitlab.pannovate.net/api/v4/groups/$gid/projects?access_token=${NPM_REGISTRY_TOKEN} | jq -c '.[].id' | while read id; do echo "//gitlab.pannovate.net/api/v4/projects/$id/packages/npm/:_authToken=${NPM_REGISTRY_TOKEN}"; done; done >> .npmrc || true
+  only:
+    - develop
+    - /^release\/.*$/i
+    - /^feature\/.*$/i
+  tags:
+    - transfast-dev
+  when: on_success
+
+start-deploy-dev:
+  extends: .develop-jobs
+  needs: []
+  stage: prepare
+  cache:
+    key: dev-cache
+    paths:
+      - node_modules/
+      - packages/*/node_modules/
+    policy: pull-push
+  artifacts:
+    paths:
+      - packages/*/dist/
+    when: "always"
+  script:
+    - |
+      echo -e "\e[0;93mRefreshing git repository...\e[0m"
+      git checkout .
+      git fetch
+      if [ -n "$USE_SPECIFIED_VERSION_TAG" ] && [ "$USE_SPECIFIED_VERSION_TAG" == "true" ] && [ -n "$VERSION" ]; then
+        git checkout "v$VERSION" # Switch to branch
+        git fetch origin "v$VERSION" # fetch the remote refs and tags
+        git reset --hard origin/"v$VERSION" # reset local repository to overwrite any committed or untracked changes and perform git pull force
+        # git clean -f -d # Delete any local untracked files and directories
+        git pull # Perform git pull to make sure there are no more issues
+      else
+        git checkout "$CI_COMMIT_REF_NAME"
+        git fetch origin "$CI_COMMIT_REF_NAME" # fetch the remote refs and tags
+        git reset --hard origin/"$CI_COMMIT_REF_NAME" # reset local repository to overwrite any committed or untracked changes and perform git pull force
+        # git clean -f -d # Delete any local untracked files and directories
+        git pull # Perform git pull to make sure there are no more issues
+      fi
+      cp -R "$CI_PROJECT_DIR"/deployment/. .
+      echo -e "\e[0;93mUpdating local env variables...\e[0m"
+    - |
+      printf "\e[0;93mLOOP THR9OUGH ALL PACKAGES FOLDERS AND APPLY PATCHES IF FOUND\e[0m"
+      for PATCH in ./packages/*/.env.patch; do
+        # Make sure there is a new line at the end of the file
+        if [ ! "$(tail -n 1 "$PATCH")" = "" ]; then
+          echo >> "$PATCH"
+        fi
+
+        # Apply the patch
+        DEST="$(dirname "$PATCH")/.env.dev"
+        ORIG="$(dirname "$PATCH")/.env.dev.bak"
+        mv "$DEST" "$ORIG"
+        touch "$DEST"
+        echo "$PATCH"
+
+        # Patching:
+        while read -r line; do
+          KEY=$(echo "$line" | awk -F '=' '{ print $1 }') # Gets KEY
+          # Check if KEY is not an empty string
+          if [ -n "$(echo "$KEY" | xargs)" ]; then
+            # Then check if KEY is in the patcher
+            if [ -n "$(grep "$KEY"= "$PATCH")" ]; then
+              sed -n "/$KEY=/p" "$PATCH" >> "$DEST" || exit 255 # And put patcher line
+              echo "    - Patched: $KEY"
+            else
+              echo "$line" >> "$DEST" # if not found - put original line
+            fi
+          else echo "" >> "$DEST" # Else put the same ampty line
+          fi
+        #done <<< "$(grep -v '#' "$ORIG")"
+        done <<< "$(cat "$ORIG")"
+
+        # Adding:
+        while read -r line; do
+          KEY=$(echo "$line" | awk -F '=' '{ print $1 }') # Gets KEY
+          # Check if KEY is not an empty string
+          if [ -n "$(echo "$KEY" | xargs)" ]; then
+            # Then check if KEY is in the original file
+            if [ -n "$(grep "$KEY"= "$DEST")" ]; then
+                # If YES then skipping since it was patched above
+                :
+            else
+              echo "    - Added: $KEY"
+              echo "$line" >> "$DEST" # Otherwise append new lines
+            fi
+          fi
+        #done <<< "$(grep -v '#' "$PATCH")"
+        done <<< "$(cat "$PATCH")"
+
+        printf "\e[0;92m%s - OK\e[0m" "$PATCH"
+        rm "$ORIG"
+      done
+      echo "---"
+    - |
+      echo -e "\e[0;93mLOOP THROUGH ALL .env AND REPLACE ENVIRONMENT AND CLIENT VARS\e[0m"
+      for f in ./packages/*/.env.dev; do
+        echo -n "$f"
+        sed -i "/ENVIRONMENT=/c\ENVIRONMENT=$ENVIRONMENT" "$f" || exit 255
+        sed -i "/CLIENT=/c\CLIENT=$CLIENT" "$f" || exit 255
+        echo -e "\e[0;92m - OK\e[0m"
+      done
+      echo "---"
+    - |
+      echo -e "\e[0;93mLOOP THROUGH ALL .env AND INSERT npm_package_version VAR\e[0m"
+      for f in ./packages/*/.env.dev; do
+        echo -n "$(dirname "$f")/package.json"
+        PACKAGE_VERSION=$(jq '.version' "$(dirname "$f")/package.json")
+        printf "\nnpm_package_version=$PACKAGE_VERSION\n" >> "$f"
+        echo -e "\e[0;92m - OK\e[0m"
+      done
+      echo "---"
+    - |
+      echo -e "\e[0;93mINSERT PLUGINS variables if configured...\e[0m"
+      if [ -z "$PLUGINS" ]; then
+        echo "No PLUGINS configured!!!"
+      else
+        PLUGINS_LIST=""
+        for PLUGIN in $(echo $PLUGINS | sed "s/,/ /g"); do
+          if [ -z "$PLUGINS_LIST" ]; then PLUGINS_LIST="@syllo/$PLUGIN"; else PLUGINS_LIST="$PLUGINS_LIST","@syllo/$PLUGIN"; fi
+        done
+        printf "\nPLUGINS=%s\n" "$PLUGINS_LIST" >> ./packages/ps/.env.dev
+        printf " - Added %s into ./ps/.env.dev\n" "$PLUGINS_LIST"
+        printf "\nPLUGINS=%s\n" "$PLUGINS_LIST" >> ./packages/api-gateway/.env.dev
+        printf " - Added %s into ./api-gateway/.env.dev\n" "$PLUGINS_LIST"
+        printf "\nPLUGINS=%s\n" "$PLUGINS_LIST" >> .env.dev.global
+        printf " - Added %s into .env.dev.global\n" "$PLUGINS_LIST"
+      fi
+
+      # Remove all unneeded plugins to speedup the build proces and reduce the size of the project
+      for PLG in "$DEPLOY_PATH"/packages/plugins/*; do
+        printf "Checking if %s is required?\n" "$PLG"
+        if [ -z "$(echo "$PLUGINS" | grep "$(basename "$PLG")")" ]; then
+          printf " - Not needed! Removing %s...\n" "$(basename "$PLG")"
+          rm -rf "$PLG"
+        else
+          printf " - Plugin required! Keaping it!\n"
+        fi
+      done
+      # With All (10) Plugins:
+      #   npx lerna bootstrap  427,00s user 143,36s system 95% cpu 9:56,37 total
+      #   npx lerna run build  556,58s user 18,04s system 561% cpu 1:42,36 total
+      # With only 2 configured plugins:
+      #   npx lerna bootstrap  193,03s user 83,76s system 97% cpu 4:42,62 total
+      #   npx lerna run build  418,38s user 13,17s system 496% cpu 1:26,90 total
+      # TOTAL GAIN ~ 53%
+      echo "---"
+    - |
+      printf "This CI Job is starting with the following CI Variables:\n"
+      printf "   - CLIENT                    = %s\n" "$CLIENT"
+      printf "   - ENVIRONMENT               = %s\n" "$ENVIRONMENT"
+      printf "   - DEBUG_CI_JOBS             = %s\n" "$DEBUG_CI_JOBS"
+      printf "   - CI_COMMIT_REF_NAME        = %s\n" "$CI_COMMIT_REF_NAME"
+      printf "   - FORCE_BUILD               = %s\n" "$FORCE_BUILD"
+      printf "   - DEPLOY_PATH               = %s\n" "$DEPLOY_PATH"
+      printf "   - USE_SPECIFIED_VERSION_TAG = %s\n" "$USE_SPECIFIED_VERSION_TAG"
+      printf "   - VERSION                   = $s\n" "$VERSION"
+      printf "   - PACKAGE_VERSION           = %s\n" "$PACKAGE_VERSION"
+      printf "   - FORCE_LERNA               = %s\n" "$FORCE_LERNA"
+      printf "   - PUBLISH_NPMS              = %s\n" "$PUBLISH_NPMS"
+      printf "   - PLUGINS                   = %s\n" "$PLUGINS"
+      echo
+
+      echo -e "\e[0;93mUpdating NPM packages...\e[0m"
+      yarn
+
+      echo -e "\e[0;93mBuilding with the lerna...\e[0m"
+
+      # TODO: Try to use yarn workspaes with lerna so that it
+      # speeds up bootstraping and reduces the size of npm_modules even more
+      lerna bootstrap || exit 255
+
+      # yarn plugins:link is not working here
+      SRVCS_LIST="connector ps config as cs els kyc mps webhook fs pubsub api-gateway"
+      for DIR in $SRVCS_LIST ; do
+        for PLUGIN in $(echo "$PLUGINS" | sed "s/,/ /g"); do
+          printf "    - Linking %s into %s ...\n" "$PLUGIN" "$DIR"
+          if [ -L "$DEPLOY_PATH"/packages/$DIR/node_modules/@syllo/"$PLUGIN" ]; then rm "$DEPLOY_PATH"/packages/$DIR/node_modules/@syllo/"$PLUGIN" ; fi
+          cd "$DEPLOY_PATH"/packages/$DIR/node_modules/@syllo/ || exit 255
+          ln -s ../../../plugins/"$PLUGIN" "$PLUGIN"
+        done
+      done
+
+      lerna run build || exit 255
+  when: manual
+
+.SAST-dev:
+  extends: .develop-jobs
+  needs: ["start-deploy-dev"]
+  stage: sast
+  cache:
+    key: dev-cache
+    paths:
+      - node_modules/
+      - packages/*/node_modules/
+    policy: pull # Do not update the cache
+  artifacts:
+    when: always
+    reports:
+      sast: SAST-audit.json
+  script:
+    - echo $CI_JOB_STAGE && echo $CI_RUNNER_DESCRIPTION && whoami
+    - |
+      echo -e "\e[0;93mRunning vulnerabilities tests...\e[0m"
+      yarn audit --json > SAST-audit.json || (
+        npm i --package-lock-only
+        rm yarn.lock
+        npm audit fix
+        yarn import
+        rm package-lock.json
+        echo -e "\e[0;93mTest FAILED with too much vulnerabilities!"
+        echo -e "\e[0;93mBut, it looks like it can be automatically fixed!" )
+      cp SAST-audit.json "$CI_PROJECT_DIR"
+
+test-dev:
+  extends: .develop-jobs
+  # needs: ["SAST-dev"]
+  needs: ["start-deploy-dev"]
+  stage: test
+  cache:
+    key: dev-cache
+    paths:
+      - node_modules/
+      - packages/*/node_modules/
+    policy: pull # Do not update the cache
+  artifacts:
+    paths:
+      - packages/*/dist/
+    when: always
+    reports:
+      junit:
+        - junit.xml
+  script:
+    - echo $CI_JOB_STAGE && echo $CI_RUNNER_DESCRIPTION && whoami
+    - echo -e "\e[0;93mRunning unit tests...\e[0m"
+    - yarn test:all --collect-coverage --ci --reporters=default --reporters=jest-junit || FAIL=true
+    - cp junit.xml "$CI_PROJECT_DIR"
+    - if [ "$FAIL" = "true" ]; then exit 255; fi
+
+deploy-dev:
+  extends: .develop-jobs
+  needs: ["test-dev"]
+  stage: deploy
+  cache: {} # Do not dowload cache from previous test jobs
+  dependencies: [] # Do not dowload artifacts from previous test jobs
+  script:
+    - echo $CI_JOB_STAGE && echo $CI_RUNNER_DESCRIPTION && whoami
+    - |
+      echo -e "\e[0;93mRefreshing git repository...\e[0m"
+      git checkout .
+      git fetch
+      if [ -n "$USE_SPECIFIED_VERSION_TAG" ] && [ "$USE_SPECIFIED_VERSION_TAG" == "true" ] && [ -n "$VERSION" ]; then
+        git checkout "v$VERSION" # Switch to branch
+        git fetch origin "v$VERSION" # fetch the remote refs and tags
+        git reset --hard origin/"v$VERSION" # reset local repository to overwrite any committed or untracked changes and perform git pull force
+        # git clean -f -d # Delete any local untracked files and directories
+        git pull # Perform git pull to make sure there are no more issues
+      else
+        git checkout "$CI_COMMIT_REF_NAME"
+        git fetch origin "$CI_COMMIT_REF_NAME" # fetch the remote refs and tags
+        git reset --hard origin/"$CI_COMMIT_REF_NAME" # reset local repository to overwrite any committed or untracked changes and perform git pull force
+        # git clean -f -d # Delete any local untracked files and directories
+        git pull # Perform git pull to make sure there are no more issues
+      fi
+      cp -R "$CI_PROJECT_DIR"/deployment/. .
+      echo -e "\e[0;93mUpdating local env variables...\e[0m"
+    - |
+      printf "\e[0;93mLOOP THR9OUGH ALL PACKAGES FOLDERS AND APPLY PATCHES IF FOUND\e[0m"
+      for PATCH in ./packages/*/.env.patch; do
+        # Make sure there is a new line at the end of the file
+        if [ ! "$(tail -n 1 "$PATCH")" = "" ]; then
+          echo >> "$PATCH"
+        fi
+
+        # Apply the patch
+        DEST="$(dirname "$PATCH")/.env.dev"
+        ORIG="$(dirname "$PATCH")/.env.dev.bak"
+        mv "$DEST" "$ORIG"
+        touch "$DEST"
+        echo "$PATCH"
+
+        # Patching:
+        while read -r line; do
+          KEY=$(echo "$line" | awk -F '=' '{ print $1 }') # Gets KEY
+          # Check if KEY is not an empty string
+          if [ -n "$(echo "$KEY" | xargs)" ]; then
+            # Then check if KEY is in the patcher
+            if [ -n "$(grep "$KEY"= "$PATCH")" ]; then
+              sed -n "/$KEY=/p" "$PATCH" >> "$DEST" || exit 255 # And put patcher line
+              echo "    - Patched: $KEY"
+            else
+              echo "$line" >> "$DEST" # if not found - put original line
+            fi
+          else echo "" >> "$DEST" # Else put the same ampty line
+          fi
+        #done <<< "$(grep -v '#' "$ORIG")"
+        done <<< "$(cat "$ORIG")"
+
+        # Adding:
+        while read -r line; do
+          KEY=$(echo "$line" | awk -F '=' '{ print $1 }') # Gets KEY
+          # Check if KEY is not an empty string
+          if [ -n "$(echo "$KEY" | xargs)" ]; then
+            # Then check if KEY is in the original file
+            if [ -n "$(grep "$KEY"= "$DEST")" ]; then
+                # If YES then skipping since it was patched above
+                :
+            else
+              echo "    - Added: $KEY"
+              echo "$line" >> "$DEST" # Otherwise append new lines
+            fi
+          fi
+        #done <<< "$(grep -v '#' "$PATCH")"
+        done <<< "$(cat "$PATCH")"
+
+        printf "\e[0;92m%s - OK\e[0m" "$PATCH"
+        rm "$ORIG"
+      done
+      echo "---"
+    - |
+      echo -e "\e[0;93mLOOP THROUGH ALL .env AND REPLACE ENVIRONMENT AND CLIENT VARS\e[0m"
+      for f in ./packages/*/.env.dev; do
+        echo -n "$f"
+        sed -i "/ENVIRONMENT=/c\ENVIRONMENT=$ENVIRONMENT" "$f" || exit 255
+        sed -i "/CLIENT=/c\CLIENT=$CLIENT" "$f" || exit 255
+        echo -e "\e[0;92m - OK\e[0m"
+      done
+      echo "---"
+    - |
+      echo -e "\e[0;93mLOOP THROUGH ALL .env AND INSERT npm_package_version VAR\e[0m"
+      for f in ./packages/*/.env.dev; do
+        echo -n "$(dirname "$f")/package.json"
+        PACKAGE_VERSION=$(jq '.version' "$(dirname "$f")/package.json")
+        printf "\nnpm_package_version=$PACKAGE_VERSION\n" >> "$f"
+        echo -e "\e[0;92m - OK\e[0m"
+      done
+      echo "---"
+    - |
+      echo -e "\e[0;93mINSERT PLUGINS variables if configured...\e[0m"
+      if [ -z "$PLUGINS" ]; then
+        echo "No PLUGINS configured!!!"
+      else
+        PLUGINS_LIST=""
+        for PLUGIN in $(echo $PLUGINS | sed "s/,/ /g"); do
+          if [ -z "$PLUGINS_LIST" ]; then PLUGINS_LIST="@syllo/$PLUGIN"; else PLUGINS_LIST="$PLUGINS_LIST","@syllo/$PLUGIN"; fi
+        done
+        printf "\nPLUGINS=%s\n" "$PLUGINS_LIST" >> ./packages/ps/.env.dev
+        printf " - Added %s into ./ps/.env.dev\n" "$PLUGINS_LIST"
+        printf "\nPLUGINS=%s\n" "$PLUGINS_LIST" >> ./packages/api-gateway/.env.dev
+        printf " - Added %s into ./api-gateway/.env.dev\n" "$PLUGINS_LIST"
+        printf "\nPLUGINS=%s\n" "$PLUGINS_LIST" >> .env.dev.global
+        printf " - Added %s into .env.dev.global\n" "$PLUGINS_LIST"
+      fi
+
+      # Remove all unneeded plugins to speedup the build proces and reduce the size of the project
+      for PLG in "$DEPLOY_PATH"/packages/plugins/*; do
+        printf "Checking if %s is required?\n" "$PLG"
+        if [ -z "$(echo "$PLUGINS" | grep "$(basename "$PLG")")" ]; then
+          printf " - Not needed! Removing %s...\n" "$(basename "$PLG")"
+          rm -rf "$PLG"
+        else
+          printf " - Plugin required! Keaping it!\n"
+        fi
+      done
+      # With All (10) Plugins:
+      #   npx lerna bootstrap  427,00s user 143,36s system 95% cpu 9:56,37 total
+      #   npx lerna run build  556,58s user 18,04s system 561% cpu 1:42,36 total
+      # With only 2 configured plugins:
+      #   npx lerna bootstrap  193,03s user 83,76s system 97% cpu 4:42,62 total
+      #   npx lerna run build  418,38s user 13,17s system 496% cpu 1:26,90 total
+      # TOTAL GAIN ~ 53%
+      echo "---"
+    - |
+      printf "This CI Job is starting with the following CI Variables:\n"
+      printf "   - CLIENT                    = %s\n" "$CLIENT"
+      printf "   - ENVIRONMENT               = %s\n" "$ENVIRONMENT"
+      printf "   - DEBUG_CI_JOBS             = %s\n" "$DEBUG_CI_JOBS"
+      printf "   - CI_COMMIT_REF_NAME        = %s\n" "$CI_COMMIT_REF_NAME"
+      printf "   - FORCE_BUILD               = %s\n" "$FORCE_BUILD"
+      printf "   - DEPLOY_PATH               = %s\n" "$DEPLOY_PATH"
+      printf "   - USE_SPECIFIED_VERSION_TAG = %s\n" "$USE_SPECIFIED_VERSION_TAG"
+      printf "   - VERSION                   = $s\n" "$VERSION"
+      printf "   - PACKAGE_VERSION           = %s\n" "$PACKAGE_VERSION"
+      printf "   - FORCE_LERNA               = %s\n" "$FORCE_LERNA"
+      printf "   - PUBLISH_NPMS              = %s\n" "$PUBLISH_NPMS"
+      printf "   - PLUGINS                   = %s\n" "$PLUGINS"
+      echo
+      echo -e "\e[0;93mUpdating NPM packages...\e[0m"
+      yarn
+      echo -e "\e[0;93mBuilding with the lerna...\e[0m"
+
+      # TODO: Try to use yarn workspaes with lerna so that it
+      # speeds up bootstraping and reduces the size of npm_modules even more
+      lerna bootstrap || exit 255
+
+      # yarn plugins:link is not working here
+      SRVCS_LIST="connector ps config as cs els kyc mps webhook fs pubsub api-gateway"
+      for DIR in $SRVCS_LIST ; do
+        for PLUGIN in $(echo "$PLUGINS" | sed "s/,/ /g"); do
+          printf "    - Linking %s into %s ...\n" "$PLUGIN" "$DIR"
+          if [ -L "$DEPLOY_PATH"/packages/$DIR/node_modules/@syllo/"$PLUGIN" ]; then rm "$DEPLOY_PATH"/packages/$DIR/node_modules/@syllo/"$PLUGIN" ; fi
+          cd "$DEPLOY_PATH"/packages/$DIR/node_modules/@syllo/ || exit 255
+          ln -s ../../../plugins/"$PLUGIN" "$PLUGIN"
+        done
+      done
+
+      lerna run build || exit 255
+
+      cd $DEPLOY_PATH
+
+      echo -e "\e[0;93mRestarting docker-compose services if needed...\e[0m"
+      docker-compose -f services.yml up -d || exit 255
+
+      echo -e "\e[0;93mRestarting services with PM2...\e[0m"
+      pm2 kill
+
+      # PM2 recognizes CI variables and passes them onto processes it controls.
+      # For that reason Override PLUGINS variable here at the end with the constructed PLUGINS_LIST
+      PLUGINS=$PLUGINS_LIST
+      pm2 start ecosystem.config.js --update-env || exit 255
+
+      echo -e "\e[0;93mRunning migrations...\e[0m"
+      yarn db:migrate
+
+      echo
+      echo -e "\e[0;92mJob done!\e[0m"
+      echo
+
+verify-dev:
+  extends: .develop-jobs
+  needs: [deploy-dev]
+  stage: verify
+  cache: {} # Do not dowload cache from previous test jobs
+  dependencies: [] # Do not dowload artifacts from previous test jobs
+  variables:
+    SRVCS_COUNT: "10"
+    RETRY_COUNT: "5"
+    WAIT_SEC: "30" # Wait between retries is seconds
+    WAIT_MULTI: "1" # Each time multiply wait time by this factor: 30*2 -> 60*2 -> 120*2...
+    FAILED: "false"
+  before_script: [] # Do not use globally set NPM Login & NPM Registry auth
+  script:
+    - |
+      printf "\e[0;92m%s\e[0m\n" "Verification ot Deployment in progress..."
+      printf "\e[0;92m%s\e[0m\n" "Expecting response from ${CI_ENVIRONMENT_URL}/is-everything-alright"
+      cnt=1 && tmout=$WAIT_SEC
+
+      # Loop until server is up (or until number of times specified) to probe for services statuses
+      while [ ${cnt} -le ${RETRY_COUNT} ]; do
+        printf "\e[0;92m%s\e[0m\n" "Running pass no. $cnt"
+        printf "\e[0;92m%s\e[0m\n" "Waiting for $tmout seconds" && sleep $tmout # Give services some time to come up
+        tmout=$(( tmout * $WAIT_MULTI )) # increase wait time
+
+        printf "\e[0;92m%s\e[0m\n" "1. GET the response from the server and store it in a temp file r.json"
+        if curl -s ${CI_ENVIRONMENT_URL}/is-everything-alright > r.json ; then printf "\e[0;92m%s\e[0m\n" "[OK] Server Found!" ; else printf "\e[0;91m%s\e[0m\n" "[ERROR] Server not responding!" && FAILED=true && echo && cnt=$(( cnt + 1 )) && continue ; fi
+
+        printf "\e[0;92m%s\e[0m\n" "2. Parse the file for a global status OK message"
+        if [ "$(jq -r .status r.json)" = "ok" ]; then printf "\e[0;92m%s\e[0m\n" "   Server status response \"Status:OK\"" ; else printf "\e[0;91m%s\e[0m\n" "   Server status response \"$(jq -r .status r.json)\"!" && FAILED=true && echo && cnt=$(( cnt + 1 )) && continue ; fi
+
+        printf "\e[0;92m%s\e[0m\n" "3. Parse the file for a number of services (ignoring environment and version keys for this check)"
+        if [ "$(jq -r '.services | del(.environment) | map_values(. | del(.version) | . = .[]) | length' r.json)" -eq $SRVCS_COUNT ]; then printf "\e[0;92m%s\e[0m" "   Number of listed services $SRVCS_COUNT - OK!"; else printf "\e[0;91m%s\e[0m\n" "[ERROR] Number of active services reported \"$(jq -r '.services | del(.environment) | map_values(. | del(.version) | . = .[]) | length' r.json)\", but expected \"$SRVCS_COUNT\"!" && FAILED=true && echo && cnt=$(( cnt + 1 )) && continue ; fi || FAILED=true
+
+        printf "\e[0;92m%s\e[0m\n" "4. Print the statuses of the services"
+        printf "     %s\n" "$(jq -r '.services | del(.environment) | map_values(. | del(.version) | . = .[])' r.json | sed 's/{//g' | sed 's/}//g')" && echo
+
+        #printf "\e[0;92m%s\e[0m\n" "Services allowed to be down: \"$SRVCS_ALLOW_DOWN\""
+
+        printf "\e[0;92m%s\e[0m\n" "5. Parse the file for all statuses of each service (Expecting status OK and number of down must be 0)"
+        if [ "$(jq -r '.services | del(.environment) | map_values(. | del(.version) | . = .[])' r.json | grep down | wc -l)" -eq 0 ]; then printf "\e[0;92m%s\e[0m\n" "[OK] All services seam OK! Deployment was successful" && break; else printf "\e[0;91m%s\e[0m\n" "[ERROR] NOT ALL Services are running!" && FAILED=true && echo && cnt=$(( cnt + 1 )) && continue ; fi
+      done
+
+      printf "\e[0;92m%s\e[0m\n" "Check PM2 statuses"
+      pm2 jlist > p.json
+      if [ ! -z "$(jq -r '.[] | .pm2_env | select(."restart_time" != 0)' p.json)" ]; then
+        printf "\e[0;93m%s\e[0m\n" "[WARNING] Some Services are restarting!"
+        printf "\e[0;93m%s\e[0m\n" "          Resetting the counter and trying again..."
+        pm2 reset all
+        printf "\e[0;93m%s\e[0m\n" "          Waiting for 60 seconds..."
+        sleep 60
+        printf "\e[0;93m%s\e[0m\n" "          Probing PM2 statuses again..."
+        pm2 jlist > p.json
+        if [ ! -z "$(jq -r '.[] | .pm2_env | select(."restart_time" != 0)' p.json)" ]; then FAILED=true && printf "\e[0;91m%s\e[0m\n" "[ERROR] Some Services are restarting!"; fi
+        pm2 list
+        if [ $FAILED != true ]; then printf "\e[0;92m%s\e[0m\n" "[OK] All services seam OK! Deployment was successful!"; fi
+      fi
+
+      # Check for $FAILED value
+      if [ $FAILED == true ]; then printf "\e[0;91m%s\e[0m\n" "[ERROR] Deployment was NOT successful!\n DO A ROLLBACK!" && exit 255; fi
+
+      exit 0

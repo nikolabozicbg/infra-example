@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tfs-as
+  labels:
+    app.kubernetes.io/name: as
+    app: as

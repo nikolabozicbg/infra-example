@@ -1,0 +1,66 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tfs-apigw-ingress
+  namespace: tfs-apigw
+  annotations:
+    kubernetes.io/ingress.class: "alb"
+    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:eu-west-1:458838185766:certificate/4fecd36b-e481-4240-b6da-ba86e03a1f03"
+    # https://docs.aws.amazon.com/elasticloadbalancing/latest/application/create-https-listener.html#describe-ssl-policies
+    alb.ingress.kubernetes.io/ssl-policy: "ELBSecurityPolicy-TLS13-1-2-2021-06"
+    # Only attributes defined in the annotation will be updated. To unset any AWS defaults(e.g. Disabling access logs after having them enabled once), the values need to be explicitly set to the original values(access_logs.s3.enabled=false) and omitting them is not sufficient.
+    # enable https, drop invalid headers, enable X-Forwarded-For header, enable deletion protection and logging
+    alb.ingress.kubernetes.io/load-balancer-attributes: "routing.http2.enabled=true,routing.http.drop_invalid_header_fields.enabled=true,routing.http.xff_client_port.enabled=true,deletion_protection.enabled=true,access_logs.s3.enabled=true,access_logs.s3.bucket=transfast-prod-cluster-logs,access_logs.s3.prefix=alb-access-logs"
+    alb.ingress.kubernetes.io/load-balancer-name: "apigw-alb"
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/backend-protocol: "HTTP"
+    alb.ingress.kubernetes.io/backend-protocol-version: "HTTP1"
+    alb.ingress.kubernetes.io/actions.ssl-redirect: '{"Type": "redirect", "RedirectConfig": { "Protocol": "HTTPS", "Port": "443", "StatusCode": "HTTP_301"}}'
+    alb.ingress.kubernetes.io/actions.force-disabling: '{"Type": "redirect", "RedirectConfig": { "host": "pannovate.com", "path": "/", "Protocol": "HTTPS", "Port": "443", "StatusCode": "HTTP_301"}}'
+    alb.ingress.kubernetes.io/scheme: "internet-facing"
+    alb.ingress.kubernetes.io/group: "tfs-apigw" # name of my app
+  labels:
+    app.kubernetes.io/name: "apigw"
+    app: "apigw"
+
+spec:
+  ingressClassName: "alb"
+  rules:
+    - http:
+        paths:
+          ##### BLOCK START #####
+          # # This is needed for normal operation. Comment it out to DISABLE Syllo
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tfs-apigw-service
+                port:
+                  #number: 443
+                  name: http
+          ##### BLOCK END #####
+          # # This block is nedded if we want to DISABLE Syllo  but still receive WEBHOOKS
+          ##### BLOCK START #####
+          # - path: /is-everything-alright
+          #   pathType: Exact
+          #   backend:
+          #     service:
+          #       name: tfs-apigw-service
+          #       port:
+          #         name: http
+          # - path: /webhooks/
+          #   pathType: Prefix
+          #   backend:
+          #     service:
+          #       name: tfs-apigw-service
+          #       port:
+          #         name: http
+          # - path: /
+          #   pathType: Prefix
+          #   backend:
+          #     service:
+          #       name: force-disabling
+          #       port:
+          #         name: use-annotation
+          ##### BLOCK END #####

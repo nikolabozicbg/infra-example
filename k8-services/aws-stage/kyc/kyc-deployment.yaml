@@ -1,0 +1,174 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tfs-kyc-deployment
+  labels:
+    app.kubernetes.io/name: kyc
+    app: kyc
+  namespace: tfs-kyc
+  annotations:
+    linkerd.io/inject: enabled
+spec:
+  selector:
+    matchLabels:
+      app: kyc
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: kyc
+    spec:
+      containers:
+        - name: syllo-kyc
+          image: 309602515679.dkr.ecr.eu-west-1.amazonaws.com/syllo-kyc:1.8.3
+          imagePullPolicy: Always
+          resources:
+            limits:
+              memory: 1000Mi
+              cpu: "0.7"
+            requests:
+              memory: 800Mi
+              cpu: "0.3"
+          ports:
+            - containerPort: 10002
+          env:
+            - name: npm_package_version
+              value: "1.8.3"
+            - name: ENVIRONMENT
+              value: "production"
+            - name: GRPC_SERVER_URL
+              value: "0.0.0.0:10002"
+            - name: W2_API_URL
+              valueFrom:
+                secretKeyRef:
+                  name: kyc-secrets
+                  key: w2-api
+            - name: W2_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: kyc-secrets
+                  key: w2-api-key
+            - name: W2_SANDBOX
+              value: "true"
+            - name: DB_TYPE
+              value: "postgres"
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: kyc-secrets
+                  key: postgres-host
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: kyc-secrets
+                  key: postgres-port
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: kyc-secrets
+                  key: postgres-username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kyc-secrets
+                  key: postgres-password
+            - name: DB_NAME
+              value: "syllotransfast"
+            - name: DB_SYNC_ENABLED
+              value: "false"
+            - name: DB_MIGRATIONS_ENABLED
+              value: "true"
+            - name: DB_LOGGING
+              value: "false"
+            - name: MQ_URL
+              valueFrom:
+                secretKeyRef:
+                  name: kyc-secrets
+                  key: mq-url
+            - name: HTTP_SERVER_PORT
+              value: "1111"
+            - name: FS_URL
+              value: "172.20.142.166:10007"
+            - name: AS_URL
+              value: "172.20.49.111:10004"
+            - name: ELS_URL
+              value: "172.20.185.160:10006"
+            - name: CS_URL
+              value: "172.20.122.80:10003"
+            - name: CONFIG_URL
+              value: "172.20.176.186:10008"
+            - name: ONFIDO_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: kyc-secrets
+                  key: onfido-api-key
+            - name: ONFIDO_APP_BUNDLE
+              value: "com.pannovate.transfast"
+            - name: PUBSUB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: kyc-secrets
+                  key: redis-url
+            - name: EQUIFAX_API_BASE_URL
+              value: "https://api.sandbox.equifax.com/"
+            - name: EQUIFAX_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: kyc-secrets
+                  key: equifax-api-key
+            - name: EQUIFAX_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: kyc-secrets
+                  key: equifax-client-id
+            - name: EQUIFAX_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: kyc-secrets
+                  key: equifax_client-secret
+            - name: EQUIFAX_API_BASE_URL_V3
+              value: "https://ic.uat.uk.equifax.com"
+            - name: EQUIFAX_CLIENT_ID_V3
+              valueFrom:
+                secretKeyRef:
+                  name: kyc-secrets
+                  key: equifax-client-id-v3
+            - name: EQUIFAX_CLIENT_SECRET_V3
+              valueFrom:
+                secretKeyRef:
+                  name: kyc-secrets
+                  key: equifax_client-secret-v3
+            - name: EQUIFAX_USERNAME_V3
+              valueFrom:
+                secretKeyRef:
+                  name: kyc-secrets
+                  key: equifax-username-v3
+            - name: EQUIFAX_PASSWORD_V3
+              valueFrom:
+                secretKeyRef:
+                  name: kyc-secrets
+                  key: equifax-password-v3
+            - name: TRUNARRATIVE_API_BASE_URL
+              value: "https://pp.trunarrative.cloud/TruAccountAPI/rest"
+            - name: TRUNARRATIVE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: kyc-secrets
+                  key: trunarative-user
+            - name: TRUNARRATIVE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kyc-secrets
+                  key: trunarative-pass
+            - name: NO_COLOR
+              value: "true"
+            - name: CLIENT
+              value: "TRANSFAST"
+            - name: DEBUG
+              value: "false"
+

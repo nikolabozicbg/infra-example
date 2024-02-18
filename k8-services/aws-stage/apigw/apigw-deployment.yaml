@@ -1,0 +1,224 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tfs-apigw-deployment
+  labels:
+    app.kubernetes.io/name: apigw
+    app: apigw
+  namespace: tfs-apigw
+  annotations:
+    linkerd.io/inject: enabled
+spec:
+  selector:
+    matchLabels:
+      app: apigw
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 2
+  template:
+    metadata:
+      labels:
+        app: apigw
+    spec:
+      containers:
+        - name: syllo-apigw
+          image: 309602515679.dkr.ecr.eu-west-1.amazonaws.com/syllo-api-gateway:1.6.82
+          # imagePullPolicy: Always # Defaults to ifNotPresent
+          ports:
+            - containerPort: 10001
+              name: apigw-grpc-port
+          # First a startup probe checks if the pod has started
+          # Thanks to the startup probe, the application will have a maximum of 5 minutes (30 * 10 = 300s) to finish its startup.
+          # Once the startup probe has succeeded once, the liveness probe takes over to provide a fast response to container deadlocks.
+          # If the startup probe never succeeds, the container is killed after 300s and subject to the pod's restartPolicy.
+          # startupProbe:
+          #   httpGet:
+          #     path: /probes/startupz # Any code greater than or equal to 200 and less than 400 indicates success. Any other code indicates failure.
+          #     port: apigw-grpc-port
+          #     scheme: HTTP
+          #   initialDelaySeconds: 30 # Number of seconds after the container has started before startup, liveness or readiness probes are initiated. Defaults to 0 seconds. Minimum value is 0.
+          #   periodSeconds: 10 # How often (in seconds) to perform the probe. Default to 10 seconds. Minimum value is 1.
+          #   timeoutSeconds: 5 # Number of seconds after which the probe times out. Defaults to 1 second. Minimum value is 1.
+          #   successThreshold: 1 # Minimum consecutive successes for the probe to be considered successful after having failed. Defaults to 1. Must be 1 for liveness and startup Probes. Minimum value is 1.
+          #   failureThreshold: 30 # After a probe fails failureThreshold times in a row, Kubernetes considers that the overall check has failed: the container is not ready / healthy / live.
+          # # Then the following 2 continue running
+          # readinessProbe:
+          #   httpGet:
+          #     path: /probes/readyz # Any code greater than or equal to 200 and less than 400 indicates success. Any other code indicates failure.
+          #     port: apigw-grpc-port
+          #     scheme: HTTP
+          #   initialDelaySeconds: 60 # Number of seconds after the container has started before startup, liveness or readiness probes are initiated. Defaults to 0 seconds. Minimum value is 0.
+          #   periodSeconds: 10 # How often (in seconds) to perform the probe. Default to 10 seconds. Minimum value is 1.
+          #   timeoutSeconds: 1 # Number of seconds after which the probe times out. Defaults to 1 second. Minimum value is 1.
+          #   successThreshold: 2 # Minimum consecutive successes for the probe to be considered successful after having failed. Defaults to 1. Must be 1 for liveness and startup Probes. Minimum value is 1.
+          #   failureThreshold: 10 # After a probe fails failureThreshold times in a row, Kubernetes considers that the overall check has failed: the container is not ready / healthy / live.
+          # livenessProbe:
+          #   httpGet:
+          #     path: /probes/healthz # Any code greater than or equal to 200 and less than 400 indicates success. Any other code indicates failure.
+          #     port: apigw-grpc-port
+          #     scheme: HTTP
+          #   initialDelaySeconds: 90 # Number of seconds after the container has started before startup, liveness or readiness probes are initiated. Defaults to 0 seconds. Minimum value is 0.
+          #   periodSeconds: 2 # How often (in seconds) to perform the probe. Default to 10 seconds. Minimum value is 1.
+          #   timeoutSeconds: 30 # Number of seconds after which the probe times out. Defaults to 1 second. Minimum value is 1.
+          #   successThreshold: 1 # Minimum consecutive successes for the probe to be considered successful after having failed. Defaults to 1. Must be 1 for liveness and startup Probes. Minimum value is 1.
+          #   failureThreshold: 30 # After a probe fails failureThreshold times in a row, Kubernetes considers that the overall check has failed: the container is not ready / healthy / live.
+          resources:
+            limits:
+              memory: 600Mi
+              cpu: "400m"
+            requests:
+              memory: 400Mi
+              cpu: "100m"
+          env:
+            - name: npm_package_version
+              value: "1.6.82"
+            - name: ENVIRONMENT
+              value: "production"
+            - name: DB_TYPE
+              value: "postgres"
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: postgres-host
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: postgres-port
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: postgres-username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: postgres-password
+            - name: DB_NAME
+              value: "syllotransfast"
+            - name: DB_SYNC_ENABLED
+              value: "false"
+            - name: DB_MIGRATIONS_ENABLED
+              value: "true"
+            - name: DB_LOGGING
+              value: "false"
+            - name: DB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: mongo-uri
+            - name: PUBSUB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: redis-url
+            - name: AS_URL
+              value: "172.20.49.111:10004"
+            - name: ELS_URL
+              value: "172.20.185.160:10006"
+            - name: KYC_URL
+              value: "172.20.87.236:10002"
+            - name: FS_URL
+              value: "172.20.142.166:10007"
+            - name: CS_URL
+              value: "172.20.122.80:10003"
+            - name: WEBHOOK_URL
+              value: "172.20.95.171:10010"
+            - name: MPS_URL
+              value: "172.20.255.222:10005"
+            - name: PS_URL
+              value: "172.20.188.63:10014"
+            - name: CONFIG_URL
+              value: "172.20.176.186:10008"
+            - name: SERVER_PORT
+              value: "10001"
+            - name: ENABLE_LIVENESS_PROBES
+              value: "true"
+            - name: MQ_URL
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: mq-url
+            - name: PFS_WEBHOOK_USERNAME_BANK
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: user_bank
+            - name: PFS_WEBHOOK_PASSWORD_BANK
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: pass_bank
+            - name: PFS_WEBHOOK_USERNAME_STATUS_CHANGE
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: user_status
+            - name: PFS_WEBHOOK_PASSWORD_STATUS_CHANGE
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: pass_status
+            - name: PFS_WEBHOOK_USERNAME_COMPLIANCE
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: user_compl
+            - name: PFS_WEBHOOK_PASSWORD_COMPLIANCE
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: pass_compl
+            - name: PFS_WEBHOOK_USERNAME_RTF
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: user_rtf
+            - name: PFS_WEBHOOK_PASSWORD_RTF
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: pass_rtf
+            - name: PFS_WEBHOOK_USERNAME_SEPA_DIRECT_DEBIT
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: user_sepa_dir
+            - name: PFS_WEBHOOK_PASSWORD_SEPA_DIRECT_DEBIT
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: pass_sepa_dir
+            - name: PFS_WEBHOOK_USERNAME_SEPA_TRANSFER_HANDLER
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: user_sepa_trans
+            - name: PFS_WEBHOOK_PASSWORD_SEPA_TRANSFER_HANDLER
+              valueFrom:
+                secretKeyRef:
+                  name: apigw-secrets
+                  key: pass_sepa_trans
+            - name: SWAGGER_HIDDEN
+              value: "false"
+            - name: APPROVED_CORS_ORIGINS
+              value: "https://admin-transfast.stage.pannovate.net,https://d3q7hej0o32zfl.cloudfront.net,https://api.transfast.stage.pannovate.net,https://transfast.syllo.stage.pannovate.net,https://transfast.stage.pannovate.net,https://dsrqz8v7ee2cn.cloudfront.net"
+            - name: PLUGINS
+              value: "@syllo/transfast,@syllo/chat"
+            - name: NO_COLOR
+              value: "true"
+            - name: CLIENT
+              value: "TRANSFAST"
+            - name: TNB_EXTERNAL_API_KEY
+              value: "not_set"
+            - name: ALLOWED_ADMIN_USER_COUNT
+              value: "25"
+            - name: SYLLO_LOG_LEVEL
+              value: "2"
+            - name: DEBUG
+              value: "false"

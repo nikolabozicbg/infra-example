@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: tfs-els-service
+  namespace: tfs-els
+  labels:
+    app.kubernetes.io/name: els
+    app: els
+spec:
+  selector:
+    app: els
+  ports:
+    - name: els-port
+      protocol: TCP
+      port: 10006
+      targetPort: 10006

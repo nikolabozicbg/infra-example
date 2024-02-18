@@ -1,0 +1,8 @@
+---
+# Pull the code
+- name: Clone the GItLab Repo
+  # apt:
+  #   force_apt_get: yes
+  #   state: latest
+  #   update_cache: yes
+  #   name: apache2

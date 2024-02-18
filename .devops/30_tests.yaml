@@ -1,0 +1,379 @@
+#
+#
+# THESE JOBS CAN BE RUN IN PARALLEL
+#
+as-test:
+  extends: .prereqs
+  stage: test
+  needs: ["as-docker-build"]
+  script:
+    - cd ./packages/as
+    # HAS NPM PUBLISH
+    - |
+      echo -e "Checking for already deployed versions to NPM Package registry for \e[0;94mas:v$VERSION\e[0m ..."
+      SRVC=as
+      LOCALVER=$(jq -r '.version' package.json)
+      echo -e " - Local version in \e[0;93mpackage.json\e[0m found: \e[94m$LOCALVER\e[0m"
+      if [ "$VERSION" != "$LOCALVER" ]; then
+        echo -e "\e[7;91mERROR! \e[0;91mVersion missmatch!"
+        echo -e "Requested to build \e[0;94mv$VERSION\e[0;91m - but found \e[0;94mv$LOCALVER\e[0;91m in source files! \e[7m Exiting! \e[0m"
+        exit 255
+      fi
+      PKG_ID=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages?per_page=1&order_by=created_at&sort=asc&package_name=@syllo/$SRVC" | jq -r '.[].id')
+      NPMVER=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID?per_page=1&order_by=created_at&sort=asc" | jq -r '[.versions | sort_by(.id) | reverse | .[0].version][0]')
+      echo -e " - Latest published '$SRVC' NPM package version found: \e[94m$NPMVER\e[0m"
+      PKG_EXISTS=false
+      if [ "$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID??per_page=1&order_by=created_at&sort=asc" | jq -r ".versions | .[] | select(.version == \"$LOCALVER\").version")" == "$LOCALVER" ]; then
+        PKG_EXISTS=true
+        echo -e " - NPM package version \e[94m$LOCALVER\e[0m found in a package registry!"
+      fi
+      if [ "$PKG_EXISTS" == "true" ]; then
+        echo -e "Package version \e[94mv$LOCALVER\e[0m already exists in package registry!"
+        echo -e "\e[7;92mAll done here. Moving on....\e[0m"
+      else
+        # Check if the list contains the version at all
+        # ANYNPMVER=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID?per_page=1&order_by=created_at&sort=asc" | jq -r '[.versions | sort_by(.id) | reverse | .[].version][]' | grep "$VERSION" || true)
+        # if [ -z "$ANYNPMVER" ]; then
+          echo -e "\e[0;92mCode has an unpublished version \e[94mv$LOCALVER\e[92m!\e[7m Running the build!\e[0m"
+          docker pull $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy
+
+          # Run more tests with Grype, Snyk, Trivy....
+
+          docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy yarn run lint || true
+          docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy yarn run depcheck || true
+          docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy npm publish
+          echo -e "\e[7;92mNew NPM Package version \e[94mv$LOCALVER\e[92m published to Package registry.\e[0m"
+        # else
+        #   echo -e "Package version \e[94mv$LOCALVER\e[0m already exists in package registry!"
+        #   echo -e "\e[7;92mAll done here. Moving on....\e[0m"
+        # fi
+      fi
+
+config-test:
+  extends: .prereqs
+  stage: test
+  needs: ["config-docker-build"]
+  script:
+    - cd ./packages/config
+    # HAS NPM PUBLISH
+    - |
+      echo -e "Checking for already deployed versions to NPM Package registry for \e[0;94mas:v$VERSION\e[0m ..."
+      SRVC=config
+      LOCALVER=$(jq -r '.version' package.json)
+      echo -e " - Local version in \e[0;93mpackage.json\e[0m found: \e[94mv$LOCALVER\e[0m"
+      if [ "$VERSION" != "$LOCALVER" ]; then
+        echo -e "\e[7;91mERROR! \e[0;91mVersion missmatch!"
+        echo -e "Requested to build \e[0;94mv$VERSION\e[0;91m - but found \e[0;94m$LOCALVER\e[0;91m in source files! \e[7m Exiting! \e[0m"
+        exit 255
+      fi
+      PKG_ID=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages?per_page=1&order_by=created_at&sort=asc&package_name=@syllo/$SRVC" | jq -r '.[].id')
+      NPMVER=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID?per_page=1&order_by=created_at&sort=asc" | jq -r '[.versions | sort_by(.id) | reverse | .[0].version][0]')
+      echo -e " - Latest published '$SRVC' NPM package version found: \e[94m$NPMVER\e[0m"
+      PKG_EXISTS=false
+      if [ "$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID??per_page=1&order_by=created_at&sort=asc" | jq -r ".versions | .[] | select(.version == \"$LOCALVER\").version")" == "$LOCALVER" ]; then
+        PKG_EXISTS=true
+        echo -e " - NPM package version \e[94m$LOCALVER\e[0m found in a package registry!"
+      fi
+      if [ "$PKG_EXISTS" == "true" ]; then
+        echo -e "Package version \e[94mv$LOCALVER\e[0m already exists in package registry!"
+        echo -e "\e[7;92mAll done here. Moving on....\e[0m"
+      else
+        # Check if the list contains the version at all
+        # ANYNPMVER=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID?per_page=1&order_by=created_at&sort=asc" | jq -r '[.versions | sort_by(.id) | reverse | .[].version][]' | grep "$VERSION" || true)
+        # if [ -z "$ANYNPMVER" ]; then
+          echo -e "\e[0;92mCode has an unpublished version \e[94mv$LOCALVER\e[92m!\e[7m Running the build!\e[0m"
+          docker pull $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy
+
+          # Run more tests with Grype, Snyk, Trivy....
+
+          docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy yarn run lint || true
+          docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy yarn run depcheck || true
+          docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy npm publish
+          echo -e "\e[7;92mNew NPM Package version \e[94mv$LOCALVER\e[92m published to Package registry.\e[0m"
+        # else
+        #   echo -e "Package version \e[94mv$LOCALVER\e[0m already exists in package registry!"
+        #   echo -e "\e[7;92mAll done here. Moving on....\e[0m"
+        # fi
+      fi
+
+cs-test:
+  extends: .prereqs
+  stage: test
+  needs: ["cs-docker-build"]
+  script:
+    - cd ./packages/cs
+    # HAS NPM PUBLISH
+    - |
+      echo -e "Checking for already deployed versions to NPM Package registry for \e[0;94mas:v$VERSION\e[0m ..."
+      SRVC=cs
+      LOCALVER=$(jq -r '.version' package.json)
+      echo -e " - Local version in \e[0;93mpackage.json\e[0m found: \e[94mv$LOCALVER\e[0m"
+      if [ "$VERSION" != "$LOCALVER" ]; then
+        echo -e "\e[7;91mERROR! \e[0;91mVersion missmatch!"
+        echo -e "Requested to build \e[0;94mv$VERSION\e[0;91m - but found \e[0;94m$LOCALVER\e[0;91m in source files! \e[7m Exiting! \e[0m"
+        exit 255
+      fi
+      PKG_ID=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages?per_page=1&order_by=created_at&sort=asc&package_name=@syllo/$SRVC" | jq -r '.[].id')
+      NPMVER=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID?per_page=1&order_by=created_at&sort=asc" | jq -r '[.versions | sort_by(.id) | reverse | .[0].version][0]')
+      echo -e " - Latest published '$SRVC' NPM package version found: \e[94m$NPMVER\e[0m"
+      PKG_EXISTS=false
+      if [ "$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID??per_page=1&order_by=created_at&sort=asc" | jq -r ".versions | .[] | select(.version == \"$LOCALVER\").version")" == "$LOCALVER" ]; then
+        PKG_EXISTS=true
+        echo -e " - NPM package version \e[94m$LOCALVER\e[0m found in a package registry!"
+      fi
+      if [ "$PKG_EXISTS" == "true" ]; then
+        echo -e "Package version \e[94mv$LOCALVER\e[0m already exists in package registry!"
+        echo -e "\e[7;92mAll done here. Moving on....\e[0m"
+      else
+        # Check if the list contains the version at all
+        # ANYNPMVER=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID?per_page=1&order_by=created_at&sort=asc" | jq -r '[.versions | sort_by(.id) | reverse | .[].version][]' | grep "$VERSION" || true)
+        # if [ -z "$ANYNPMVER" ]; then
+          echo -e "\e[0;92mCode has an unpublished version \e[94mv$LOCALVER\e[92m!\e[7m Running the build!\e[0m"
+          docker pull $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy
+
+          # Run more tests with Grype, Snyk, Trivy....
+
+          docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy yarn run lint || true
+          docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy yarn run depcheck || true
+          docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy npm publish
+          echo -e "\e[7;92mNew NPM Package version \e[94mv$LOCALVER\e[92m published to Package registry.\e[0m"
+        # else
+        #   echo -e "Package version \e[94mv$LOCALVER\e[0m already exists in package registry!"
+        #   echo -e "\e[7;92mAll done here. Moving on....\e[0m"
+        # fi
+      fi
+
+els-test:
+  extends: .prereqs
+  stage: test
+  needs: ["els-docker-build"]
+  script:
+    - cd ./packages/els
+    # HAS NPM PUBLISH
+    - |
+      echo -e "Checking for already deployed versions to NPM Package registry for \e[0;94mas:v$VERSION\e[0m ..."
+      SRVC=els
+      LOCALVER=$(jq -r '.version' package.json)
+      echo -e " - Local version in \e[0;93mpackage.json\e[0m found: \e[94mv$LOCALVER\e[0m"
+      if [ "$VERSION" != "$LOCALVER" ]; then
+        echo -e "\e[7;91mERROR! \e[0;91mVersion missmatch!"
+        echo -e "Requested to build \e[0;94mv$VERSION\e[0;91m - but found \e[0;94m$LOCALVER\e[0;91m in source files! \e[7m Exiting! \e[0m"
+        exit 255
+      fi
+      PKG_ID=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages?per_page=1&order_by=created_at&sort=asc&package_name=@syllo/$SRVC" | jq -r '.[].id')
+      NPMVER=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID?per_page=1&order_by=created_at&sort=asc" | jq -r '[.versions | sort_by(.id) | reverse | .[0].version][0]')
+      echo -e " - Latest published '$SRVC' NPM package version found: \e[94m$NPMVER\e[0m"
+      PKG_EXISTS=false
+      if [ "$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID??per_page=1&order_by=created_at&sort=asc" | jq -r ".versions | .[] | select(.version == \"$LOCALVER\").version")" == "$LOCALVER" ]; then
+        PKG_EXISTS=true
+        echo -e " - NPM package version \e[94m$LOCALVER\e[0m found in a package registry!"
+      fi
+      if [ "$PKG_EXISTS" == "true" ]; then
+        echo -e "Package version \e[94mv$LOCALVER\e[0m already exists in package registry!"
+        echo -e "\e[7;92mAll done here. Moving on....\e[0m"
+      else
+        # Check if the list contains the version at all
+        # ANYNPMVER=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID?per_page=1&order_by=created_at&sort=asc" | jq -r '[.versions | sort_by(.id) | reverse | .[].version][]' | grep "$VERSION" || true)
+        # if [ -z "$ANYNPMVER" ]; then
+          echo -e "\e[0;92mCode has an unpublished version \e[94mv$LOCALVER\e[92m!\e[7m Running the build!\e[0m"
+          docker pull $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy
+
+          # Run more tests with Grype, Snyk, Trivy....
+
+          docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy yarn run lint || true
+          docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy yarn run depcheck || true
+          docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy npm publish
+          echo -e "\e[7;92mNew NPM Package version \e[94mv$LOCALVER\e[92m published to Package registry.\e[0m"
+        # else
+        #   echo -e "Package version \e[94mv$LOCALVER\e[0m already exists in package registry!"
+        #   echo -e "\e[7;92mAll done here. Moving on....\e[0m"
+        # fi
+      fi
+
+kyc-test:
+  extends: .prereqs
+  stage: test
+  needs: ["kyc-docker-build"]
+  script:
+    - cd ./packages/kyc
+    # HAS NPM PUBLISH
+    - |
+      echo -e "Checking for already deployed versions to NPM Package registry for \e[0;94mas:v$VERSION\e[0m ..."
+      SRVC=kyc
+      LOCALVER=$(jq -r '.version' package.json)
+      echo -e " - Local version in \e[0;93mpackage.json\e[0m found: \e[94mv$LOCALVER\e[0m"
+      if [ "$VERSION" != "$LOCALVER" ]; then
+        echo -e "\e[7;91mERROR! \e[0;91mVersion missmatch!"
+        echo -e "Requested to build \e[0;94mv$VERSION\e[0;91m - but found \e[0;94m$LOCALVER\e[0;91m in source files! \e[7m Exiting! \e[0m"
+        exit 255
+      fi
+      PKG_ID=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages?per_page=1&order_by=created_at&sort=asc&package_name=@syllo/$SRVC" | jq -r '.[].id')
+      NPMVER=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID?per_page=1&order_by=created_at&sort=asc" | jq -r '[.versions | sort_by(.id) | reverse | .[0].version][0]')
+      echo -e " - Latest published '$SRVC' NPM package version found: \e[94m$NPMVER\e[0m"
+      PKG_EXISTS=false
+      if [ "$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID??per_page=1&order_by=created_at&sort=asc" | jq -r ".versions | .[] | select(.version == \"$LOCALVER\").version")" == "$LOCALVER" ]; then
+        PKG_EXISTS=true
+        echo -e " - NPM package version \e[94m$LOCALVER\e[0m found in a package registry!"
+      fi
+      if [ "$PKG_EXISTS" == "true" ]; then
+        echo -e "Package version \e[94mv$LOCALVER\e[0m already exists in package registry!"
+        echo -e "\e[7;92mAll done here. Moving on....\e[0m"
+      else
+        # Check if the list contains the version at all
+        # ANYNPMVER=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID?per_page=1&order_by=created_at&sort=asc" | jq -r '[.versions | sort_by(.id) | reverse | .[].version][]' | grep "$VERSION" || true)
+        # if [ -z "$ANYNPMVER" ]; then
+          echo -e "\e[0;92mCode has an unpublished version \e[94mv$LOCALVER\e[92m!\e[7m Running the build!\e[0m"
+          docker pull $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy
+
+          # Run more tests with Grype, Snyk, Trivy....
+
+          docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy yarn run lint || true
+          docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy yarn run depcheck || true
+          docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy npm publish
+          echo -e "\e[7;92mNew NPM Package version \e[94mv$LOCALVER\e[92m published to Package registry.\e[0m"
+        # else
+        #   echo -e "Package version \e[94mv$LOCALVER\e[0m already exists in package registry!"
+        #   echo -e "\e[7;92mAll done here. Moving on....\e[0m"
+        # fi
+      fi
+
+mps-test:
+  extends: .prereqs
+  stage: test
+  needs: ["mps-docker-build"]
+  script:
+    - cd ./packages/mps
+    # HAS NPM PUBLISH
+    - |
+      echo -e "Checking for already deployed versions to NPM Package registry for \e[0;94mas:v$VERSION\e[0m ..."
+      SRVC=mps
+      LOCALVER=$(jq -r '.version' package.json)
+      echo -e " - Local version in \e[0;93mpackage.json\e[0m found: \e[94mv$LOCALVER\e[0m"
+      if [ "$VERSION" != "$LOCALVER" ]; then
+        echo -e "\e[7;91mERROR! \e[0;91mVersion missmatch!"
+        echo -e "Requested to build \e[0;94mv$VERSION\e[0;91m - but found \e[0;94mv$LOCALVER\e[0;91m in source files! \e[7m Exiting! \e[0m"
+        exit 255
+      fi
+      PKG_ID=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages?per_page=1&order_by=created_at&sort=asc&package_name=@syllo/$SRVC" | jq -r '.[].id')
+      NPMVER=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID?per_page=1&order_by=created_at&sort=asc" | jq -r '[.versions | sort_by(.id) | reverse | .[0].version][0]')
+      echo -e " - Latest published '$SRVC' NPM package version found: \e[94m$NPMVER\e[0m"
+      PKG_EXISTS=false
+      if [ "$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID??per_page=1&order_by=created_at&sort=asc" | jq -r ".versions | .[] | select(.version == \"$LOCALVER\").version")" == "$LOCALVER" ]; then
+        PKG_EXISTS=true
+        echo -e " - NPM package version \e[94m$LOCALVER\e[0m found in a package registry!"
+      fi
+      if [ "$PKG_EXISTS" == "true" ]; then
+        echo -e "Package version \e[94mv$LOCALVER\e[0m already exists in package registry!"
+        echo -e "\e[7;92mAll done here. Moving on....\e[0m"
+      else
+        # Check if the list contains the version at all
+        # ANYNPMVER=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID?per_page=1&order_by=created_at&sort=asc" | jq -r '[.versions | sort_by(.id) | reverse | .[].version][]' | grep "$VERSION" || true)
+        # if [ -z "$ANYNPMVER" ]; then
+          echo -e "\e[0;92mCode has an unpublished version \e[94mv$LOCALVER\e[92m!\e[7m Running the build!\e[0m"
+          docker pull $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy
+
+          # Run more tests with Grype, Snyk, Trivy....
+
+          docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy yarn run lint || true
+          docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy yarn run depcheck || true
+          docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy npm publish
+          echo -e "\e[7;92mNew NPM Package version \e[94mv$LOCALVER\e[92m published to Package registry.\e[0m"
+        # else
+        #   echo -e "Package version \e[94mv$LOCALVER\e[0m already exists in package registry!"
+        #   echo -e "\e[7;92mAll done here. Moving on....\e[0m"
+        # fi
+      fi
+
+# ps-test:
+#   extends: .prereqs
+#   stage: test
+#   needs: ["ps-docker-build"]
+#   script:
+#     - cd ./packages/ps
+#     # HAS NPM PUBLISH
+#     - |
+#       echo -e "Checking for already deployed versions to NPM Package registry for \e[0;94mas:v$VERSION\e[0m ..."
+#       SRVC=ps
+#       LOCALVER=$(jq -r '.version' package.json)
+#       echo -e " - Local version in \e[0;93mpackage.json\e[0m found: \e[94mv$LOCALVER\e[0m"
+#       if [ "$VERSION" != "$LOCALVER" ]; then
+#         echo -e "\e[7;91mERROR! \e[0;91mVersion missmatch!"
+#         echo -e "Requested to build \e[0;94mv$VERSION\e[0;91m - but found \e[0;94mv$LOCALVER\e[0;91m in source files! \e[7m Exiting! \e[0m"
+#         exit 255
+#       fi
+#       PKG_ID=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages?per_page=1&order_by=created_at&sort=asc&package_name=@syllo/$SRVC" | jq -r '.[].id')
+#       NPMVER=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID?per_page=1&order_by=created_at&sort=asc" | jq -r '[.versions | sort_by(.id) | reverse | .[0].version][0]')
+#       echo -e " - Latest published '$SRVC' NPM package version found: \e[94m$NPMVER\e[0m"
+#       PKG_EXISTS=false
+#       if [ "$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID??per_page=1&order_by=created_at&sort=asc" | jq -r ".versions | .[] | select(.version == \"$LOCALVER\").version")" == "$LOCALVER" ]; then
+#         PKG_EXISTS=true
+#         echo -e " - NPM package version \e[94m$LOCALVER\e[0m found in a package registry!"
+#       fi
+#       if [ "$PKG_EXISTS" == "true" ]; then
+#         echo -e "Package version \e[94mv$LOCALVER\e[0m already exists in package registry!"
+#         echo -e "\e[7;92mAll done here. Moving on....\e[0m"
+#       else
+#         # Check if the list contains the version at all
+#         # ANYNPMVER=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID?per_page=1&order_by=created_at&sort=asc" | jq -r '[.versions | sort_by(.id) | reverse | .[].version][]' | grep "$VERSION" || true)
+#         # if [ -z "$ANYNPMVER" ]; then
+#           echo -e "\e[0;92mCode has an unpublished version \e[94mv$LOCALVER\e[92m!\e[7m Running the build!\e[0m"
+#           docker pull $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy
+#
+#           # Run more tests with Grype, Snyk, Trivy....
+#
+#           docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy yarn run lint || true
+#           docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy yarn run depcheck || true
+#           docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy npm publish
+#           echo -e "\e[7;92mNew NPM Package version \e[94mv$LOCALVER\e[92m published to Package registry.\e[0m"
+#         # else
+#         #   echo -e "Package version \e[94mv$LOCALVER\e[0m already exists in package registry!"
+#         #   echo -e "\e[7;92mAll done here. Moving on....\e[0m"
+#         # fi
+#       fi
+
+webhook-test:
+  extends: .prereqs
+  stage: test
+  needs: ["webhook-docker-build"]
+  script:
+    - cd ./packages/webhook
+    # HAS NPM PUBLISH
+    - |
+      echo -e "Checking for already deployed versions to NPM Package registry for \e[0;94mas:v$VERSION\e[0m ..."
+      SRVC=webhook
+      LOCALVER=$(jq -r '.version' package.json)
+      echo -e " - Local version in \e[0;93mpackage.json\e[0m found: \e[94mv$LOCALVER\e[0m"
+      if [ "$VERSION" != "$LOCALVER" ]; then
+        echo -e "\e[7;91mERROR! \e[0;91mVersion missmatch!"
+        echo -e "Requested to build \e[0;94mv$VERSION\e[0;91m - but found \e[0;94mv$LOCALVER\e[0;91m in source files! \e[7m Exiting! \e[0m"
+        exit 255
+      fi
+      PKG_ID=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages?per_page=1&order_by=created_at&sort=asc&package_name=@syllo/$SRVC" | jq -r '.[].id')
+      NPMVER=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID?per_page=1&order_by=created_at&sort=asc" | jq -r '[.versions | sort_by(.id) | reverse | .[0].version][0]')
+      echo -e " - Latest published '$SRVC' NPM package version found: \e[94m$NPMVER\e[0m"
+      PKG_EXISTS=false
+      if [ "$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID??per_page=1&order_by=created_at&sort=asc" | jq -r ".versions | .[] | select(.version == \"$LOCALVER\").version")" == "$LOCALVER" ]; then
+        PKG_EXISTS=true
+        echo -e " - NPM package version \e[94m$LOCALVER\e[0m found in a package registry!"
+      fi
+      if [ "$PKG_EXISTS" == "true" ]; then
+        echo -e "Package version \e[94mv$LOCALVER\e[0m already exists in package registry!"
+        echo -e "\e[7;92mAll done here. Moving on....\e[0m"
+      else
+        # Check if the list contains the version at all
+        # ANYNPMVER=$(curl -s --header "PRIVATE-TOKEN: $NPM_REGISTRY_TOKEN" "https://gitlab.pannovate.net/api/v4/projects/260/packages/$PKG_ID?per_page=1&order_by=created_at&sort=asc" | jq -r '[.versions | sort_by(.id) | reverse | .[].version][]' | grep "$VERSION" || true)
+        # if [ -z "$ANYNPMVER" ]; then
+          echo -e "\e[0;92mCode has an unpublished version \e[94mv$LOCALVER\e[92m!\e[7m Running the build!\e[0m"
+          docker pull $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy
+
+          # Run more tests with Grype, Snyk, Trivy....
+
+          docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy yarn run lint || true
+          docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy yarn run depcheck || true
+          docker run $CI_REGISTRY/$DOCKER_REGISTRY/syllo-$SRVC:deploy npm publish
+          echo -e "\e[7;92mNew NPM Package version \e[94mv$LOCALVER\e[92m published to Package registry.\e[0m"
+        # else
+        #   echo -e "Package version \e[94mv$LOCALVER\e[0m already exists in package registry!"
+        #   echo -e "\e[7;92mAll done here. Moving on....\e[0m"
+        # fi
+      fi

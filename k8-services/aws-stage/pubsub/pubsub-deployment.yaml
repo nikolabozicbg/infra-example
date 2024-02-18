@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tfs-pubsub-deployment
+  labels:
+    app.kubernetes.io/name: pubsub
+    app: pubsub
+  namespace: tfs-pubsub
+  annotations:
+    linkerd.io/inject: enabled
+spec:
+  selector:
+    matchLabels:
+      app: pubsub
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: pubsub
+    spec:
+      containers:
+        - name: syllo-pubsub
+          image: 309602515679.dkr.ecr.eu-west-1.amazonaws.com/syllo-pubsub:1.8.3
+          imagePullPolicy: Always
+          resources:
+            limits:
+              memory: 200Mi
+              cpu: "0.2"
+            requests:
+              memory: 100Mi
+              cpu: "0.1"
+          ports:
+            - containerPort: 10009
+          env:
+            - name: npm_package_version
+              value: "1.8.3"
+            - name: ENVIRONMENT
+              value: "production"
+            - name: REDIS_SERVER_URL
+              valueFrom:
+                secretKeyRef:
+                  name: pubsub-secrets
+                  key: redis-url
+            - name: CONFIG_URL
+              value: "172.20.176.186:10008"
+            - name: MQ_URL
+              valueFrom:
+                secretKeyRef:
+                  name: pubsub-secrets
+                  key: mq-url
+            - name: NO_COLOR
+              value: "true"
+            - name: CLIENT
+              value: "TRANSFAST"
+            - name: DEBUG
+              value: "false"
+
